@@ -10,7 +10,7 @@ set -euo pipefail
 #   ROS_INFO_TOPIC  (default: /camera_info)
 
 WSL_IP="${WSL_IP:-}"
-VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video0}"
+VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video1}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 ROS_IMAGE_TOPIC="${ROS_IMAGE_TOPIC:-/image_raw}"
 ROS_INFO_TOPIC="${ROS_INFO_TOPIC:-/camera_info}"
