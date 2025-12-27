@@ -2,18 +2,54 @@
 set -euo pipefail
 
 # Run ROS 2 Jazzy camera publisher in Docker on Raspberry Pi (USB webcam, v4l2).
-# Configure via env vars:
-#   WSL_IP        (required) WSL host IP for CycloneDDS static peer.
-#   VIDEO_DEVICE  (default: /dev/video0) camera device on Pi.
-#   ROS_DOMAIN_ID (default: 0)
-#   ROS_IMAGE_TOPIC (default: /image_raw)
-#   ROS_INFO_TOPIC  (default: /camera_info)
+# Configure via flags or env vars:
+#   --wslip IP          (or WSL_IP) required: WSL host IP for CycloneDDS static peer.
+#   --video INDEX|PATH  (or VIDEO_DEVICE) default: /dev/video0
+#   ROS_DOMAIN_ID       default: 0
+#   ROS_IMAGE_TOPIC     default: /image_raw
+#   ROS_INFO_TOPIC      default: /camera_info
 
 WSL_IP="${WSL_IP:-}"
-VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video1}"
+VIDEO_DEVICE="${VIDEO_DEVICE:-/dev/video0}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 ROS_IMAGE_TOPIC="${ROS_IMAGE_TOPIC:-/image_raw}"
 ROS_INFO_TOPIC="${ROS_INFO_TOPIC:-/camera_info}"
+
+usage() {
+  cat <<EOF
+Usage: ${0} --wslip <IP> [--video <INDEX|/dev/videoX>]
+
+Examples:
+  ${0} --wslip 192.168.50.219 --video 0
+  ${0} --wslip 192.168.50.219 --video /dev/video2
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --wslip)
+      WSL_IP="${2:-}"
+      shift 2
+      ;;
+    --video)
+      VIDEO_DEVICE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -n "${VIDEO_DEVICE}" ]] && [[ "${VIDEO_DEVICE}" != /dev/video* ]]; then
+  VIDEO_DEVICE="/dev/video${VIDEO_DEVICE}"
+fi
 
 if [[ -z "${WSL_IP}" ]]; then
   echo "WSL_IP is required. Example: WSL_IP=192.168.50.219 ${0}" >&2
