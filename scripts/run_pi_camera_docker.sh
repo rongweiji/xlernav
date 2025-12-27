@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Run ROS 2 Jazzy camera publisher in Docker on Raspberry Pi (USB webcam, v4l2).
+# Run ROS 2 Jazzy Docker environment on Raspberry Pi (USB webcam, v4l2).
+# This script only prepares and opens the container; you run ROS 2 commands manually.
 # Configure via flags or env vars:
 #   --wslip IP          (or WSL_IP) required: WSL host IP for CycloneDDS static peer.
 #   --video INDEX|PATH  (or VIDEO_DEVICE) default: /dev/video0
@@ -63,15 +64,6 @@ if [[ -z "${WSL_IP}" ]]; then
   exit 1
 fi
 
-if [[ -z "${BRIGHTNESS}" ]] && command -v v4l2-ctl >/dev/null 2>&1; then
-  BRIGHTNESS="$(v4l2-ctl --device="${VIDEO_DEVICE}" --list-ctrls 2>/dev/null | \
-    awk '/brightness/ {for (i=1;i<=NF;i++) if ($i ~ /^min=/) {sub(/^min=/,"",$i); print $i; exit}}')"
-fi
-if [[ -z "${BRIGHTNESS}" ]]; then
-  BRIGHTNESS="1"
-  echo "BRIGHTNESS not set; defaulting to ${BRIGHTNESS}" >&2
-fi
-
 CONFIG_DIR="${HOME}/.config/cyclonedds"
 CONFIG_FILE="${CONFIG_DIR}/cyclonedds.xml"
 
@@ -95,11 +87,26 @@ EOF
 
 echo "Using WSL_IP=${WSL_IP}"
 echo "Using VIDEO_DEVICE=${VIDEO_DEVICE}"
-echo "Using BRIGHTNESS=${BRIGHTNESS}"
 echo "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
 echo "Publishing topics:"
 echo "  ${ROS_IMAGE_TOPIC}"
 echo "  ${ROS_INFO_TOPIC}"
+if [[ -n "${BRIGHTNESS}" ]]; then
+  echo "Using BRIGHTNESS=${BRIGHTNESS}"
+fi
+
+echo ""
+echo "Container will start now. Inside it, run:"
+echo "  apt update"
+echo "  apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera"
+echo "  source /opt/ros/jazzy/setup.bash"
+echo "  ros2 run v4l2_camera v4l2_camera_node --ros-args \\"
+echo "    -p video_device:=${VIDEO_DEVICE} \\"
+if [[ -n "${BRIGHTNESS}" ]]; then
+  echo "    -p brightness:=${BRIGHTNESS} \\"
+fi
+echo "    -r image_raw:=${ROS_IMAGE_TOPIC} \\"
+echo "    -r camera_info:=${ROS_INFO_TOPIC}"
 
 docker run --rm -it --net=host --ipc=host --privileged \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID}" \
@@ -107,13 +114,4 @@ docker run --rm -it --net=host --ipc=host --privileged \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   -e CYCLONEDDS_URI="file:///root/.config/cyclonedds/cyclonedds.xml" \
   -v "${CONFIG_DIR}:/root/.config/cyclonedds" \
-  ros:jazzy-ros-base bash -lc "\
-    apt update && \
-    apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera && \
-    source /opt/ros/jazzy/setup.bash && \
-    ros2 run v4l2_camera v4l2_camera_node --ros-args \
-      -p video_device:=${VIDEO_DEVICE} \
-      -p brightness:=${BRIGHTNESS} \
-      -r image_raw:=${ROS_IMAGE_TOPIC} \
-      -r camera_info:=${ROS_INFO_TOPIC} \
-  "
+  ros:jazzy-ros-base bash
