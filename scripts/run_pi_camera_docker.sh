@@ -7,6 +7,8 @@ set -euo pipefail
 #   --wslip IP          (or WSL_IP) required: WSL host IP for CycloneDDS static peer.
 #   --video INDEX|PATH  (or VIDEO_DEVICE) default: /dev/video0
 #   --brightness VALUE  (or BRIGHTNESS) optional: camera brightness
+#   --repo PATH         (or REPO_DIR) optional: repo path to mount into container
+#   --calib PATH        (or CALIB_FILE) optional: calibration file path (host)
 #   ROS_DOMAIN_ID       default: 0
 #   ROS_IMAGE_TOPIC     default: /image_raw
 #   ROS_INFO_TOPIC      default: /camera_info
@@ -17,6 +19,8 @@ ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 ROS_IMAGE_TOPIC="${ROS_IMAGE_TOPIC:-/image_raw}"
 ROS_INFO_TOPIC="${ROS_INFO_TOPIC:-/camera_info}"
 BRIGHTNESS="${BRIGHTNESS:-}"
+REPO_DIR="${REPO_DIR:-${HOME}/xlernav}"
+CALIB_FILE="${CALIB_FILE:-}"
 
 usage() {
   cat <<EOF
@@ -26,6 +30,7 @@ Examples:
   ${0} --wslip 192.168.50.219 --video 0
   ${0} --wslip 192.168.50.219 --video /dev/video2
   ${0} --wslip 192.168.50.219 --video 0 --brightness 1
+  ${0} --wslip 192.168.50.219 --video 0 --repo ~/xlernav --calib cfg/camera_left.yaml
 EOF
 }
 
@@ -41,6 +46,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --brightness)
       BRIGHTNESS="${2:-}"
+      shift 2
+      ;;
+    --repo)
+      REPO_DIR="${2:-}"
+      shift 2
+      ;;
+    --calib)
+      CALIB_FILE="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -94,6 +107,9 @@ echo "  ${ROS_INFO_TOPIC}"
 if [[ -n "${BRIGHTNESS}" ]]; then
   echo "Using BRIGHTNESS=${BRIGHTNESS}"
 fi
+if [[ -n "${CALIB_FILE}" ]]; then
+  echo "Using CALIB_FILE=${CALIB_FILE}"
+fi
 
 echo ""
 echo "Container will start now. Inside it, run:"
@@ -101,6 +117,9 @@ echo "  apt update"
 echo "  apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera"
 echo "  source /opt/ros/jazzy/setup.bash"
 echo "  ros2 run v4l2_camera v4l2_camera_node --ros-args \\"
+if [[ -n "${CALIB_FILE}" ]]; then
+  echo "    -p camera_info_url:=file:///root/xlernav/${CALIB_FILE} \\"
+fi
 echo "    -p video_device:=${VIDEO_DEVICE} \\"
 if [[ -n "${BRIGHTNESS}" ]]; then
   echo "    -p brightness:=${BRIGHTNESS} \\"
@@ -114,4 +133,5 @@ docker run --rm -it --net=host --ipc=host --privileged \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
   -e CYCLONEDDS_URI="file:///root/.config/cyclonedds/cyclonedds.xml" \
   -v "${CONFIG_DIR}:/root/.config/cyclonedds" \
+  -v "${REPO_DIR}:/root/xlernav" \
   ros:jazzy-ros-base bash
