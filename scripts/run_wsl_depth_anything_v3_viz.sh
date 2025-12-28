@@ -63,7 +63,27 @@ if [[ ! -f "${RVIZ_CONFIG}" ]]; then
 fi
 
 # CycloneDDS static peer config (recommended for WSL2 <-> Pi)
-eval "$("${SCRIPT_DIR}/setup_cyclonedds_wsl.sh" "${PI_IP}")"
+CONFIG_DIR="${HOME}/.config/cyclonedds"
+CONFIG_FILE="${CONFIG_DIR}/cyclonedds.xml"
+mkdir -p "${CONFIG_DIR}"
+cat > "${CONFIG_FILE}" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS>
+  <Domain>
+    <General>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <Peers>
+        <Peer address="127.0.0.1"/>
+        <Peer address="${PI_IP}"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>
+EOF
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI="file://${CONFIG_FILE}"
 
 export ROS_DOMAIN_ID
 export ROS_LOCALHOST_ONLY=0
