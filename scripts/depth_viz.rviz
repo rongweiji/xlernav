@@ -7,9 +7,17 @@ Panels:
         - /Depth Debug
       Splitter Ratio: 0.5
     Tree Height: 400
+  - Class: rviz_common/Selection
+    Name: Selection
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
   - Class: rviz_common/Views
     Name: Views
     Splitter Ratio: 0.5
+  - Class: rviz_common/Time
+    Experimental: false
+    Name: Time
+    SyncMode: 0
 Visualization Manager:
   Class: ""
   Displays:
@@ -63,6 +71,13 @@ Visualization Manager:
     Fixed Frame: camera
     Frame Rate: 30
   Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
@@ -76,6 +91,14 @@ Visualization Manager:
       Value: Orbit (rviz)
 Window Geometry:
   Displays:
+    collapsed: false
+  Selection:
+    collapsed: false
+  Tool Properties:
+    collapsed: false
+  Views:
+    collapsed: false
+  Time:
     collapsed: false
   Hide Left Dock: false
   Hide Right Dock: false
