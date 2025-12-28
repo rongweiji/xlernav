@@ -13,6 +13,7 @@ cat > ~/.config/cyclonedds/cyclonedds.xml <<EOF
     </General>
     <Discovery>
       <Peers>
+        <Peer address="127.0.0.1"/>
         <Peer address="${PI_IP}"/>
       </Peers>
     </Discovery>
