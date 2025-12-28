@@ -1,0 +1,60 @@
+%YAML:1.0
+
+#--------------------------------------------------------------------------------------------
+# Raspberry Pi camera + Depth Anything V3 (RGB-D)
+# Intrinsics from cfg/camera_left.yaml
+#--------------------------------------------------------------------------------------------
+File.version: "1.0"
+
+Camera.type: "KannalaBrandt8"
+
+# Camera calibration and distortion parameters (equidistant)
+Camera1.fx: 559.977089
+Camera1.fy: 559.913558
+Camera1.cx: 327.234812
+Camera1.cy: 270.627899
+
+Camera1.k1: -0.149566597
+Camera1.k2: 0.423687450
+Camera1.k3: -1.922723260
+Camera1.k4: 2.930855271
+
+Camera.width: 640
+Camera.height: 480
+
+Camera.fps: 6
+
+# Image stream is rgb8 from v4l2_camera
+Camera.RGB: 1
+
+# Close/Far threshold. Baseline times.
+Stereo.ThDepth: 40.0
+Stereo.b: 0.05
+
+# Depth map values factor: depth_in_meters = depth_raw / DepthMapFactor
+# Depth Anything publishes 32FC1. If values are already meters, keep 1.0.
+# If values look like millimeters, set to 1000.0.
+RGBD.DepthMapFactor: 1.0
+
+#--------------------------------------------------------------------------------------------
+# ORB Parameters
+#--------------------------------------------------------------------------------------------
+ORBextractor.nFeatures: 1250
+ORBextractor.scaleFactor: 1.2
+ORBextractor.nLevels: 8
+ORBextractor.iniThFAST: 20
+ORBextractor.minThFAST: 7
+
+#--------------------------------------------------------------------------------------------
+# Viewer Parameters
+#--------------------------------------------------------------------------------------------
+Viewer.KeyFrameSize: 0.05
+Viewer.KeyFrameLineWidth: 1.0
+Viewer.GraphLineWidth: 0.9
+Viewer.PointSize: 2.0
+Viewer.CameraSize: 0.08
+Viewer.CameraLineWidth: 3.0
+Viewer.ViewpointX: 0.0
+Viewer.ViewpointY: -0.7
+Viewer.ViewpointZ: -3.5
+Viewer.ViewpointF: 500.0
