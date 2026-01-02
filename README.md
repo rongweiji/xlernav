@@ -115,6 +115,59 @@ ros2 run demo_nodes_cpp listener
 
 If the listener receives messages, the install + network setup is working.
 
+### Step 4: Run Camera -> Depth -> SLAM (Pi + WSL)
+
+High-level: the Pi publishes the camera image from inside Docker, and WSL runs depth + SLAM.
+
+1) On the Pi, identify the camera device:
+```
+ls /dev/video*
+```
+Optional (if you have `v4l2-ctl`):
+```
+v4l2-ctl --list-devices
+```
+
+2) On the Pi, start the ROS 2 Docker container:
+```
+bash scripts/run_pi_camera_docker.sh --wslip <WSL_IP> --video <INDEX> --repo ~/xlernav --calib cfg/camera_left.yaml
+```
+Inside the container, run the camera node (this publishes `/image_raw` and `/camera_info`), if video1:
+```
+apt update
+apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera
+source /opt/ros/jazzy/setup.bash
+ros2 run v4l2_camera v4l2_camera_node --ros-args \
+  -p camera_info_url:=file:///root/xlernav/cfg/camera_left.yaml \
+  -p video_device:=/dev/video1 \
+  -p brightness:=0 \
+  -p contrast:=32 \
+  -p saturation:=64 \
+  -p hue:=0 \
+  -p gamma:=100 \
+  -p gain:=0 \
+  -p power_line_frequency:=1 \
+  -p sharpness:=3 \
+  -p backlight_compensation:=12 \
+  -p white_balance_automatic:=false \
+  -p white_balance_temperature:=4600 \
+  -r image_raw:=/image_raw \
+  -r camera_info:=/camera_info \
+  -p framerate:=30
+
+```
+
+3) On WSL, start Depth Anything V3 (subscribes to the Pi topics):
+```
+bash scripts/run_wsl_depth_anything_v3_viz.sh <PI_IP>
+```
+
+4) On WSL, start ORB-SLAM3 (subscribes to RGB + depth):
+```
+ENABLE_VIEWER=true bash scripts/run_wsl_orb_slam3_rgbd.sh <PI_IP>
+```
+Note: run this after confirming the depth topic is publishing; keep this command handy for later.
+
 ## Roadmap
 
 See `ROADMAP.md`.
