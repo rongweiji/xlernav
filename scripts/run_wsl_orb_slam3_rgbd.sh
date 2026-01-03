@@ -29,6 +29,7 @@ IMAGE_ENCODING="${IMAGE_ENCODING:-}"
 DIAG_PERIOD="${DIAG_PERIOD:-2.0}"
 SYNC_QUEUE_SIZE="${SYNC_QUEUE_SIZE:-10}"
 SYNC_SLOP_SEC="${SYNC_SLOP_SEC:-0.05}"
+USE_CYCLONE="${USE_CYCLONE:-0}"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
@@ -55,11 +56,11 @@ if [[ ! -f "${SETTINGS_PATH}" ]]; then
   exit 1
 fi
 
-# CycloneDDS static peer config for WSL2 <-> Pi
-CONFIG_DIR="${HOME}/.config/cyclonedds"
-CONFIG_FILE="${CONFIG_DIR}/cyclonedds.xml"
-mkdir -p "${CONFIG_DIR}"
-cat > "${CONFIG_FILE}" <<EOF_CFG
+if [[ "${USE_CYCLONE}" == "1" ]]; then
+  CONFIG_DIR="${HOME}/.config/cyclonedds"
+  CONFIG_FILE="${CONFIG_DIR}/cyclonedds.xml"
+  mkdir -p "${CONFIG_DIR}"
+  cat > "${CONFIG_FILE}" <<EOF_CFG
 <?xml version="1.0" encoding="UTF-8"?>
 <CycloneDDS>
   <Domain>
@@ -75,8 +76,12 @@ cat > "${CONFIG_FILE}" <<EOF_CFG
   </Domain>
 </CycloneDDS>
 EOF_CFG
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI="file://${CONFIG_FILE}"
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export CYCLONEDDS_URI="file://${CONFIG_FILE}"
+else
+  unset RMW_IMPLEMENTATION
+  unset CYCLONEDDS_URI
+fi
 
 export ROS_DOMAIN_ID
 export ROS_LOCALHOST_ONLY=0
@@ -91,6 +96,7 @@ set -u
 
 echo "Pi peer: ${PI_IP}"
 echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
+echo "RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-FastDDS (default)}"
 echo "RGB topic: ${RGB_TOPIC}"
 echo "Depth topic: ${DEPTH_TOPIC}"
 echo "CameraInfo topic: ${CAMERA_INFO_TOPIC}"

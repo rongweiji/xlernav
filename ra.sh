@@ -1,3 +1,4 @@
+#  pi docker startentry1 
 ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -p camera_info_url:=file:///root/xlernav/cfg/camera_left.yaml \
   -p video_device:=/dev/video1 \
@@ -15,24 +16,19 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -r image_raw:=/image_raw \
   -r camera_info:=/camera_info \
   -p framerate:=30
+#  pi docker startentry2
+ ros2 run image_transport republish --ros-args     --remap in:=/image_raw     --remap out:=/image_raw     --param in_transport:=raw     --param out_transport:=compressed
 
+# wsl2 
+# depth 
+PUBLISH_POINT_CLOUD=0 bash scripts/run_wsl_depth_anything_v3_viz.sh
 
+# 
+# wsl2slam 
+ros2 run image_transport republish compressed in:=/image_raw raw out:=/image_raw_uncompressed
 
-QT_QPA_PLATFORM=xcb LIBGL_ALWAYS_SOFTWARE=1 bash scripts/run_wsl_depth_anything_v3_viz.sh 192.168.50.124
-
-
-# cehck the inference performcance 
-cd /mnt/g/GithubProject/xlernav
-eval "$(bash scripts/setup_cyclonedds_wsl.sh 192.168.50.124)"
-export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
-source /opt/ros/jazzy/setup.bash
-source ros2_ws/install/setup.bash
-
-ros2 run depth_anything_v3 depth_anything_v3_main --ros-args \
-  --log-level depth_anything_v3:=debug \
-  --params-file ros2_ws/ros2-depth-anything-v3-trt/depth_anything_v3/config/depth_anything_v3.param.yaml \
-  -r '/depth_anything_v3/input/image:=/image_raw' \
-  -r '/depth_anything_v3/input/camera_info:=/camera_info'
-
-
-ENABLE_VIEWER=true bash scripts/run_wsl_orb_slam3_rgbd.sh 192.168.50.124
+# wsl2 orbslam3 rgbd
+USE_COMPRESSED_RGB=1 \
+  COMPRESSED_RGB_TOPIC=/image_raw/compressed \
+  DECOMPRESSED_RGB_TOPIC=/image_raw_uncompressed \
+  bash scripts/run_wsl_orb_slam3_rgbd.sh

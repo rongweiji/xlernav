@@ -4,7 +4,7 @@ set -euo pipefail
 # Run ROS 2 Jazzy Docker environment on Raspberry Pi (USB webcam, v4l2).
 # This script only prepares and opens the container; you run ROS 2 commands manually.
 # Configure via flags or env vars:
-#   --wslip IP          (or WSL_IP) required: WSL host IP for CycloneDDS static peer.
+#   --wslip IP          (or WSL_IP) optional: WSL host IP (not needed for FastDDS default).
 #   --video INDEX|PATH  (or VIDEO_DEVICE) default: /dev/video0
 #   --brightness VALUE  (or BRIGHTNESS) optional: camera brightness
 #   --repo PATH         (or REPO_DIR) optional: repo path to mount into container
@@ -27,10 +27,10 @@ usage() {
 Usage: ${0} --wslip <IP> [--video <INDEX|/dev/videoX>]
 
 Examples:
-  ${0} --wslip 192.168.50.219 --video 0
-  ${0} --wslip 192.168.50.219 --video /dev/video2
-  ${0} --wslip 192.168.50.219 --video 0 --brightness 1
-  ${0} --wslip 192.168.50.219 --video 0 --repo ~/xlernav --calib cfg/camera_left.yaml
+  ${0} --video 0
+  ${0} --video /dev/video2
+  ${0} --video 0 --brightness 1
+  ${0} --video 0 --repo ~/xlernav --calib cfg/camera_left.yaml
 EOF
 }
 
@@ -72,33 +72,7 @@ if [[ -n "${VIDEO_DEVICE}" ]] && [[ "${VIDEO_DEVICE}" != /dev/video* ]]; then
   VIDEO_DEVICE="/dev/video${VIDEO_DEVICE}"
 fi
 
-if [[ -z "${WSL_IP}" ]]; then
-  echo "WSL_IP is required. Example: WSL_IP=192.168.50.219 ${0}" >&2
-  exit 1
-fi
-
-CONFIG_DIR="${HOME}/.config/cyclonedds"
-CONFIG_FILE="${CONFIG_DIR}/cyclonedds.xml"
-
-mkdir -p "${CONFIG_DIR}"
-cat > "${CONFIG_FILE}" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<CycloneDDS>
-  <Domain>
-    <General>
-      <NetworkInterfaceAddress>wlan0</NetworkInterfaceAddress>
-      <AllowMulticast>false</AllowMulticast>
-    </General>
-    <Discovery>
-      <Peers>
-        <Peer address="${WSL_IP}"/>
-      </Peers>
-    </Discovery>
-  </Domain>
-</CycloneDDS>
-EOF
-
-echo "Using WSL_IP=${WSL_IP}"
+echo "Using WSL_IP=${WSL_IP:-unset}"
 echo "Using VIDEO_DEVICE=${VIDEO_DEVICE}"
 echo "Using ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
 echo "Publishing topics:"
@@ -114,7 +88,7 @@ fi
 echo ""
 echo "Container will start now. Inside it, run:"
 echo "  apt update"
-echo "  apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera"
+echo "  apt install -y ros-jazzy-v4l2-camera"
 echo "  source /opt/ros/jazzy/setup.bash"
 echo "  ros2 run v4l2_camera v4l2_camera_node --ros-args \\"
 if [[ -n "${CALIB_FILE}" ]]; then
@@ -130,8 +104,5 @@ echo "    -r camera_info:=${ROS_INFO_TOPIC}"
 docker run --rm -it --net=host --ipc=host --privileged \
   -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID}" \
   -e ROS_LOCALHOST_ONLY=0 \
-  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
-  -e CYCLONEDDS_URI="file:///root/.config/cyclonedds/cyclonedds.xml" \
-  -v "${CONFIG_DIR}:/root/.config/cyclonedds" \
   -v "${REPO_DIR}:/root/xlernav" \
   ros:jazzy-ros-base bash

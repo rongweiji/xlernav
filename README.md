@@ -23,77 +23,28 @@ ROS_DISTRO=jazzy bash scripts/install_ros2_pi.sh
 - Use the same `ROS_DOMAIN_ID` on both Pi and WSL (default is `0`).
 - Ensure both devices are on the same Wi-Fi network.
 - Keep time in sync (NTP/chrony recommended).
-
-#### WSL2 <-> Pi DDS Connectivity (Mirrored Networking + CycloneDDS)
-
-WSL2 discovery over DDS can fail with NAT + multicast. Use mirrored networking and
-static peer discovery with CycloneDDS.
-
-1) Enable WSL2 mirrored networking (Windows 11):
-- Create `%UserProfile%\.wslconfig`:
-```
-[wsl2]
-networkingMode=mirrored
-```
-- Apply: `wsl --shutdown`, then reopen WSL.
-
-2) Install CycloneDDS RMW on both sides:
-```
-sudo apt update
-sudo apt install -y ros-jazzy-rmw-cyclonedds-cpp
-```
-
-3) Set CycloneDDS config on WSL (interface `eth3`, peer = Pi IP):
-```
-cat > ~/.config/cyclonedds/cyclonedds.xml <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<CycloneDDS>
-  <Domain>
-    <General>
-      <NetworkInterfaceAddress>eth3</NetworkInterfaceAddress>
-      <AllowMulticast>false</AllowMulticast>
-    </General>
-    <Discovery>
-      <Peers>
-        <Peer address="192.168.50.124"/>
-      </Peers>
-    </Discovery>
-  </Domain>
-</CycloneDDS>
-EOF
-```
-
-4) Set CycloneDDS config on Pi (interface `wlan0`, peer = WSL IP):
-```
-cat > ~/.config/cyclonedds/cyclonedds.xml <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<CycloneDDS>
-  <Domain>
-    <General>
-      <NetworkInterfaceAddress>wlan0</NetworkInterfaceAddress>
-      <AllowMulticast>false</AllowMulticast>
-    </General>
-    <Discovery>
-      <Peers>
-        <Peer address="192.168.50.219"/>
-      </Peers>
-    </Discovery>
-  </Domain>
-</CycloneDDS>
-EOF
-```
-
-5) Export env vars in both shells:
-```
-source /opt/ros/jazzy/setup.bash
-export ROS_DOMAIN_ID=0
-export ROS_LOCALHOST_ONLY=0
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI=file://$HOME/.config/cyclonedds/cyclonedds.xml
-```
-
-6) Windows firewall:
-- If DDS traffic is blocked, allow UDP 7400-7600 on Windows firewall.
+- Enable WSL2 mirrored networking (Windows 11):
+  - `%UserProfile%\.wslconfig`:
+    ```
+    [wsl2]
+    networkingMode=mirrored
+    ```
+  - Apply: `wsl --shutdown`, then reopen WSL.
+- **Default middleware: FastDDS (no extra config needed).** In every shell:
+  ```
+  unset RMW_IMPLEMENTATION
+  unset CYCLONEDDS_URI
+  export ROS_DOMAIN_ID=0
+  export ROS_LOCALHOST_ONLY=0
+  source /opt/ros/jazzy/setup.bash
+  ```
+- Optional (only if discovery is flaky): use CycloneDDS with a peer file that lists `127.0.0.1`
+  and the other host’s IP, then set:
+  ```
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export CYCLONEDDS_URI=file://$HOME/.config/cyclonedds/cyclonedds.xml
+  ```
+  and re-source ROS. This is not required for the default flow.
 
 ### Step 3: Verify ROS 2 Connectivity
 
@@ -171,3 +122,26 @@ Note: run this after confirming the depth topic is publishing; keep this command
 ## Roadmap
 
 See `ROADMAP.md`.
+
+
+// uncompressed
+  Terminal 1: start republisher
+
+  unset RMW_IMPLEMENTATION CYCLONEDDS_URI
+  export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
+  source /opt/ros/jazzy/setup.bash
+
+  ros2 run image_transport republish --ros-args \
+    -r __node:=image_republisher_rgb \
+    -p in_transport:=compressed \
+    -p out_transport:=raw \
+    -r in:=/image_raw \
+    -r out:=/image_raw_uncompressed
+
+  Terminal 2: keep‑alive subscriber (prevents lazy shutdown)
+
+  unset RMW_IMPLEMENTATION CYCLONEDDS_URI
+  export ROS_DOMAIN_ID=0 ROS_LOCALHOST_ONLY=0
+  source /opt/ros/jazzy/setup.bash
+
+  ros2 topic echo /image_raw_uncompressed --qos-profile sensor_data
