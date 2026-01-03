@@ -81,12 +81,14 @@ v4l2-ctl --list-devices
 
 2) On the Pi, start the ROS 2 Docker container:
 ```
-bash scripts/run_pi_camera_docker.sh --wslip <WSL_IP> --video <INDEX> --repo ~/xlernav --calib cfg/camera_left.yaml
+bash scripts/run_pi_camera_docker.sh --video <INDEX> --repo ~/xlernav --calib cfg/camera_left.yaml
 ```
+Note: with FastDDS (default), no target IP is needed. `--wslip` is only for explicit
+CycloneDDS peer configs (the script itself does not use it).
 Inside the container, run the camera node (this publishes `/image_raw` and `/camera_info`), if video1:
 ```
 apt update
-apt install -y ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-v4l2-camera
+apt install -y ros-jazzy-v4l2-camera
 source /opt/ros/jazzy/setup.bash
 ros2 run v4l2_camera v4l2_camera_node --ros-args \
   -p camera_info_url:=file:///root/xlernav/cfg/camera_left.yaml \

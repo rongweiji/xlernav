@@ -23,9 +23,7 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args \
 # depth 
 PUBLISH_POINT_CLOUD=0 bash scripts/run_wsl_depth_anything_v3_viz.sh
 
-# 
-# wsl2slam 
-ros2 run image_transport republish compressed in:=/image_raw raw out:=/image_raw_uncompressed
+
 
 # wsl2 orbslam3 rgbd
 USE_COMPRESSED_RGB=1 \

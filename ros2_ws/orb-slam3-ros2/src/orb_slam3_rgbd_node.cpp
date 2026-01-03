@@ -115,6 +115,12 @@ class OrbSlam3RgbdNode : public rclcpp::Node {
     sync_slop_sec_ = declare_parameter<double>("sync_slop_sec", 0.05);
     diagnostics_period_sec_ = declare_parameter<double>("diagnostics_period_sec", 2.0);
     depth_stats_stride_ = declare_parameter<int>("depth_stats_stride", 8);
+    lock_map_ = declare_parameter<bool>("lock_map", false);
+    lock_map_after_frames_ = declare_parameter<int>("lock_map_after_frames", 1);
+
+    if (lock_map_after_frames_ < 1) {
+      lock_map_after_frames_ = 1;
+    }
 
     if (vocab_path_.empty() || settings_path_.empty()) {
       throw std::runtime_error("vocab_path and settings_path must be set");
@@ -125,6 +131,11 @@ class OrbSlam3RgbdNode : public rclcpp::Node {
     RCLCPP_INFO(get_logger(), "Subscribing RGB: %s", rgb_topic_.c_str());
     RCLCPP_INFO(get_logger(), "Subscribing depth: %s", depth_topic_.c_str());
     RCLCPP_INFO(get_logger(), "Subscribing camera_info: %s", camera_info_topic_.c_str());
+    if (lock_map_) {
+      RCLCPP_WARN(get_logger(),
+                  "lock_map enabled: switching to localization-only after %d tracking OK frames",
+                  lock_map_after_frames_);
+    }
 
     slam_ = std::make_unique<ORB_SLAM3::System>(
         vocab_path_, settings_path_, ORB_SLAM3::System::RGBD, enable_viewer_);
@@ -225,6 +236,8 @@ class OrbSlam3RgbdNode : public rclcpp::Node {
                            "Tracking state not OK (%d)", tracking_state);
     }
 
+    maybeLockMap(tracking_state);
+
     depth_stats_counter_++;
     if (depth_stats_counter_ % 30 == 0) {
       last_depth_stats_ = computeDepthStats(depth_cv->image, depth_stats_stride_);
@@ -268,6 +281,22 @@ class OrbSlam3RgbdNode : public rclcpp::Node {
       tf_msg.transform.translation.z = t.z();
       tf_msg.transform.rotation = pose_msg.pose.orientation;
       tf_broadcaster_->sendTransform(tf_msg);
+    }
+  }
+
+  void maybeLockMap(int tracking_state) {
+    if (!lock_map_ || localization_mode_active_) {
+      return;
+    }
+    if (tracking_state == ORB_SLAM3::Tracking::OK ||
+        tracking_state == ORB_SLAM3::Tracking::OK_KLT) {
+      tracking_ok_frames_++;
+      if (tracking_ok_frames_ >= lock_map_after_frames_) {
+        slam_->ActivateLocalizationMode();
+        localization_mode_active_ = true;
+        RCLCPP_WARN(get_logger(),
+                    "Localization-only mode enabled (map updates/new maps disabled).");
+      }
     }
   }
 
@@ -390,6 +419,10 @@ class OrbSlam3RgbdNode : public rclcpp::Node {
   double sync_slop_sec_ = 0.05;
   double diagnostics_period_sec_ = 2.0;
   int depth_stats_stride_ = 8;
+  bool lock_map_ = false;
+  bool localization_mode_active_ = false;
+  int lock_map_after_frames_ = 1;
+  int tracking_ok_frames_ = 0;
 
   std::unique_ptr<ORB_SLAM3::System> slam_;
 

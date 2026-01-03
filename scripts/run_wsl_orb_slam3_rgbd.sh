@@ -15,6 +15,8 @@ set -euo pipefail
 #   SETTINGS_PATH           (default: config/raspi_rgbd.yaml)
 #   ENABLE_VIEWER           (default: false)
 #   IMAGE_ENCODING          (default: "")
+#   LOCK_MAP               (default: 0; set 1 to freeze map after init)
+#   LOCK_MAP_AFTER_FRAMES  (default: 1)
 #   DIAG_PERIOD             (default: 2.0)
 #   SYNC_QUEUE_SIZE         (default: 10)
 #   SYNC_SLOP_SEC           (default: 0.05)
@@ -26,6 +28,8 @@ DEPTH_TOPIC="${DEPTH_TOPIC:-/depth_anything_v3/output/depth_image}"
 CAMERA_INFO_TOPIC="${CAMERA_INFO_TOPIC:-/camera_info}"
 ENABLE_VIEWER="${ENABLE_VIEWER:-false}"
 IMAGE_ENCODING="${IMAGE_ENCODING:-}"
+LOCK_MAP="${LOCK_MAP:-0}"
+LOCK_MAP_AFTER_FRAMES="${LOCK_MAP_AFTER_FRAMES:-1}"
 DIAG_PERIOD="${DIAG_PERIOD:-2.0}"
 SYNC_QUEUE_SIZE="${SYNC_QUEUE_SIZE:-10}"
 SYNC_SLOP_SEC="${SYNC_SLOP_SEC:-0.05}"
@@ -94,6 +98,15 @@ source /opt/ros/jazzy/setup.bash
 source "${WS_SETUP}"
 set -u
 
+case "${LOCK_MAP}" in
+  1|true|TRUE|True|yes|YES|Yes) LOCK_MAP_BOOL=true ;;
+  0|false|FALSE|False|no|NO|No|"") LOCK_MAP_BOOL=false ;;
+  *)
+    echo "Invalid LOCK_MAP value: ${LOCK_MAP}. Use 1/0 or true/false." >&2
+    exit 1
+    ;;
+esac
+
 echo "Pi peer: ${PI_IP}"
 echo "ROS_DOMAIN_ID=${ROS_DOMAIN_ID}"
 echo "RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-FastDDS (default)}"
@@ -111,6 +124,8 @@ ROS_ARGS=(
   -p depth_topic:="${DEPTH_TOPIC}"
   -p camera_info_topic:="${CAMERA_INFO_TOPIC}"
   -p enable_viewer:="${ENABLE_VIEWER}"
+  -p lock_map:="${LOCK_MAP_BOOL}"
+  -p lock_map_after_frames:="${LOCK_MAP_AFTER_FRAMES}"
   -p diagnostics_period_sec:="${DIAG_PERIOD}"
   -p sync_queue_size:="${SYNC_QUEUE_SIZE}"
   -p sync_slop_sec:="${SYNC_SLOP_SEC}"
