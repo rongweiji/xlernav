@@ -7,7 +7,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('vocab_path', default_value='/mnt/g/LocalGitProject/ORB_SLAM3/Vocabulary/ORBvoc.txt'),
-        DeclareLaunchArgument('settings_path', default_value='/mnt/g/GithubProject/xlernav/ros2_ws/orb-slam3-ros2/config/raspi_rgbd.yaml'),
+        DeclareLaunchArgument('settings_path', default_value='/mnt/g/GithubProject/xlernav/ros/ros2_ws/orb-slam3-ros2/config/raspi_rgbd.yaml'),
         DeclareLaunchArgument('rgb_topic', default_value='/image_raw'),
         DeclareLaunchArgument('depth_topic', default_value='/depth_anything_v3/output/depth_image'),
         DeclareLaunchArgument('camera_info_topic', default_value='/camera_info'),

@@ -19,7 +19,9 @@ ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 ROS_IMAGE_TOPIC="${ROS_IMAGE_TOPIC:-/image_raw}"
 ROS_INFO_TOPIC="${ROS_INFO_TOPIC:-/camera_info}"
 BRIGHTNESS="${BRIGHTNESS:-}"
-REPO_DIR="${REPO_DIR:-${HOME}/xlernav}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+REPO_DIR="${REPO_DIR:-${REPO_ROOT}}"
 CALIB_FILE="${CALIB_FILE:-}"
 
 usage() {
@@ -30,7 +32,7 @@ Examples:
   ${0} --video 0
   ${0} --video /dev/video2
   ${0} --video 0 --brightness 1
-  ${0} --video 0 --repo ~/xlernav --calib cfg/camera_left.yaml
+  ${0} --video 0 --repo ~/xlernav/ros --calib cfg/camera_left.yaml
 EOF
 }
 
