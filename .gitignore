@@ -2,3 +2,5 @@ ros/ros2_ws/build/
 ros/ros2_ws/install/
 ros/ros2_ws/log/
 .claude/
+cuda-keyring_1.1-1_all.deb
+non_ros/depth_stream_cpp/build/ 
