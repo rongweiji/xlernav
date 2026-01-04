@@ -65,8 +65,18 @@ bash non_ros/run_orbslam3_stream.sh --port 5600
 ```
 This builds ORB-SLAM3 (if missing) and launches the Pangolin viewer.
 Undistort is applied before depth + SLAM.
-Optional: add `--show-fps` to open an undistorted preview window.
-Use `--show-raw` to see raw vs undistorted side-by-side.
+
+UI modes:
+- Default (ORB-SLAM3 viewer): `--ui orbslam` (default)
+- Custom UI (single OpenCV window with RGB + depth + 3D pose): `--ui custom`
+- Both viewers: `--ui both` (may be unreliable on WSL)
+
+Custom UI options:
+- `--show-fps` overlays rx/depth FPS on the custom UI
+- `--show-raw` shows the raw frame instead of the rectified frame
+Use the mouse in the 3D panel to rotate/zoom the pose view.
+The custom UI uses CPU rendering for the 3D panel to avoid OpenGL crashes on WSL.
+
 If the undistorted view is black, try `--no-projection` to ignore
 `projection_matrix` and use intrinsics instead.
 Defaults:
@@ -84,3 +94,5 @@ First run will clone ORB-SLAM3 into `non_ros/orbslam3_stream/vendor`.
 - If the UI opens but no frames arrive, add `--log-wait` to print a
   periodic "waiting for frames..." message.
 - Depth inference uses the local TensorRT engine under `non_ros/depth_stream_cpp/models`.
+- On Ubuntu 24.04, `libpangolin-dev` may be missing from apt; if the ORB-SLAM3 build fails,
+  install Pangolin from source.

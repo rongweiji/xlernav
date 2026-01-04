@@ -19,10 +19,15 @@ sudo apt install -y \
   libglew-dev \
   libglfw3-dev \
   libopencv-dev \
-  libpangolin-dev \
   libjpeg-dev \
   libpng-dev \
   libtiff-dev \
   python3-gi \
   python3-opencv \
   python3-numpy
+
+if ! dpkg -s libpangolin-dev >/dev/null 2>&1; then
+  if ! sudo apt install -y libpangolin-dev; then
+    echo "libpangolin-dev not available via apt. ORB-SLAM3 viewer needs Pangolin; build from source if required."
+  fi
+fi
