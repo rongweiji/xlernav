@@ -63,9 +63,7 @@ private:
 
 static std::string default_engine_path()
 {
-  const fs::path model_dir =
-    fs::path(__FILE__).parent_path().parent_path().parent_path() / "ros" / "ros2_ws" /
-    "ros2-depth-anything-v3-trt" / "depth_anything_v3" / "models";
+  const fs::path model_dir = fs::path(__FILE__).parent_path() / "models";
 
   const fs::path trt10 = model_dir / "DA3METRIC-LARGE.trt10.engine";
   const fs::path legacy = model_dir / "DA3METRIC-LARGE.fp16-batch1.engine";
@@ -77,7 +75,7 @@ static std::string default_engine_path()
 
 static std::string default_calib_path()
 {
-  const fs::path path = fs::path(__FILE__).parent_path().parent_path().parent_path() / "ros" / "cfg" / "camera_left.yaml";
+  const fs::path path = fs::path(__FILE__).parent_path() / "config" / "camera_left.yaml";
   return path.string();
 }
 

@@ -16,9 +16,9 @@ find_path(TENSORRT_INCLUDE_DIR NvInfer.h
   HINTS /usr /usr/include /usr/include/x86_64-linux-gnu
   PATH_SUFFIXES include)
 
-set(DEPTH_ANYTHING_INSTALL_DIR "${CMAKE_SOURCE_DIR}/../../ros/ros2_ws/install/depth_anything_v3")
-set(DEPTH_ANYTHING_INCLUDE_DIR "${DEPTH_ANYTHING_INSTALL_DIR}/include")
-set(DEPTH_ANYTHING_LIB "${DEPTH_ANYTHING_INSTALL_DIR}/lib/libtensorrt_depth_anything.so")
+set(DEPTH_ANYTHING_VENDOR_DIR "${CMAKE_SOURCE_DIR}/vendor/depth_anything_v3")
+set(DEPTH_ANYTHING_INCLUDE_DIR "${DEPTH_ANYTHING_VENDOR_DIR}/include")
+set(DEPTH_ANYTHING_LIB "${DEPTH_ANYTHING_VENDOR_DIR}/lib/libtensorrt_depth_anything.so")
 
 add_executable(depth_stream_cpp
   main.cpp
@@ -47,5 +47,5 @@ ament_target_dependencies(depth_stream_cpp
 )
 
 set_target_properties(depth_stream_cpp PROPERTIES
-  BUILD_RPATH "/opt/ros/jazzy/lib;${DEPTH_ANYTHING_INSTALL_DIR}/lib"
+  BUILD_RPATH "/opt/ros/jazzy/lib;${DEPTH_ANYTHING_VENDOR_DIR}/lib"
 )
