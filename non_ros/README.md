@@ -7,9 +7,11 @@ decodes to BGR frames and displays a live preview.
 - `run_pi_stream_h264.sh`: Capture `/dev/videoX` and send H.264 RTP/UDP.
 - `recv_view.py`: Receive, decode, and display frames (latest-only).
 - `run_depth_stream_cpp.sh`: C++ depth viewer using the TensorRT C++ engine.
+- `run_orbslam3_stream.sh`: RGB + depth + ORB-SLAM3 viewer (non-ROS).
 - `install_pi.sh`: Install Pi streaming dependencies.
 - `install_wsl.sh`: Install WSL streaming dependencies.
 - `depth_stream_cpp/`: C++ depth viewer sources (builds on demand).
+- `orbslam3_stream/`: ORB-SLAM3 streaming + undistort sources.
 
 ## Quick Start
 
@@ -55,6 +57,23 @@ bash non_ros/run_depth_stream_cpp.sh --port 5600 --show-fps
 This uses the C++ Depth Anything TensorRT engine (no Python bindings).
 Engine defaults to `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`.
 Camera calibration defaults to `non_ros/depth_stream_cpp/config/camera_left.yaml`.
+
+### 4) On WSL (ORB-SLAM3 GUI)
+```
+bash non_ros/install_wsl.sh
+bash non_ros/run_orbslam3_stream.sh --port 5600
+```
+This builds ORB-SLAM3 (if missing) and launches the Pangolin viewer.
+Undistort is applied before depth + SLAM.
+Optional: add `--show-fps` to open an undistorted preview window.
+Use `--show-raw` to see raw vs undistorted side-by-side.
+If the undistorted view is black, try `--no-projection` to ignore
+`projection_matrix` and use intrinsics instead.
+Defaults:
+- Vocabulary: `non_ros/orbslam3_stream/vocabulary/ORBvoc.txt`
+- Calibration: `non_ros/orbslam3_stream/config/camera_left.yaml`
+- Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
+First run will clone ORB-SLAM3 into `non_ros/orbslam3_stream/vendor`.
 
 ## Notes
 - The sender script auto-selects an encoder:

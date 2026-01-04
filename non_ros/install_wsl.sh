@@ -5,6 +5,7 @@ sudo apt update
 sudo apt install -y \
   build-essential \
   cmake \
+  git \
   gstreamer1.0-tools \
   gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good \
@@ -12,7 +13,16 @@ sudo apt install -y \
   gstreamer1.0-plugins-ugly \
   gstreamer1.0-libav \
   gir1.2-gstreamer-1.0 \
+  libboost-all-dev \
+  libeigen3-dev \
+  libgl1-mesa-dev \
+  libglew-dev \
+  libglfw3-dev \
   libopencv-dev \
+  libpangolin-dev \
+  libjpeg-dev \
+  libpng-dev \
+  libtiff-dev \
   python3-gi \
   python3-opencv \
   python3-numpy
