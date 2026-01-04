@@ -29,6 +29,9 @@ def main() -> None:
     parser.add_argument("--show-fps", action="store_true", help="Overlay FPS in the preview")
     parser.add_argument("--log-fps", action="store_true", help="Print FPS to stdout")
     parser.add_argument("--fps-interval", type=float, default=1.0, help="Seconds between FPS updates")
+    parser.add_argument("--pull-timeout-ms", type=int, default=1000, help="Appsink pull timeout in ms")
+    parser.add_argument("--log-wait", action="store_true", help="Log when no frames arrive")
+    parser.add_argument("--wait-log-interval", type=float, default=5.0, help="Seconds between wait logs")
     args = parser.parse_args()
 
     Gst.init(None)
@@ -45,11 +48,18 @@ def main() -> None:
     last_fps_time = time.time()
     frame_count = 0
     fps_text = ""
+    last_wait_log = 0.0
+    timeout_ns = int(max(args.pull_timeout_ms, 10) * 1_000_000)
 
     try:
         while True:
-            sample = appsink.emit("pull-sample")
+            sample = appsink.emit("try-pull-sample", timeout_ns)
             if sample is None:
+                if args.log_wait:
+                    now = time.time()
+                    if now - last_wait_log >= max(args.wait_log_interval, 0.1):
+                        print("[stream] waiting for frames...")
+                        last_wait_log = now
                 continue
 
             buf = sample.get_buffer()

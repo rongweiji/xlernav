@@ -24,6 +24,12 @@ bash non_ros/install_wsl.sh
 ```
 
 ### 1) On the Pi (sender)
+
+```
+  v4l2-ctl --list-devices 
+```
+
+
 ```
 bash non_ros/run_pi_stream_h264.sh --host <WSL_IP> --device /dev/video0
 ```
@@ -46,3 +52,5 @@ Press `q` to quit the viewer.
 - `recv_view.py` uses an appsink with `max-buffers=1` and `drop=true`
   to keep the stream real-time by discarding old frames.
 - Use `--log-fps` to print FPS in the terminal.
+- If the UI opens but no frames arrive, add `--log-wait` to print a
+  periodic "waiting for frames..." message.
