@@ -9,3 +9,5 @@ non_ros/orbslam3_stream/vocabulary/
 cuda-keyring_1.1-1_all.deb
 non_ros/depth_stream_cpp/build/ 
 non_ros/depth_stream_cpp/models
+non_ros/voxel_stream/build/
+non_ros/common/build/

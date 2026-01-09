@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+namespace xlernav {
+
 struct CalibrationData {
   int width = 0;
   int height = 0;
@@ -24,3 +26,5 @@ bool BuildUndistortMaps(
   cv::Mat & map1,
   cv::Mat & map2,
   cv::Mat & new_k);
+
+}  // namespace xlernav

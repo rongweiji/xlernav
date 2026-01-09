@@ -8,10 +8,12 @@ decodes to BGR frames and displays a live preview.
 - `recv_view.py`: Receive, decode, and display frames (latest-only).
 - `run_depth_stream_cpp.sh`: C++ depth viewer using the TensorRT C++ engine.
 - `run_orbslam3_stream.sh`: RGB + depth + ORB-SLAM3 viewer (non-ROS).
+- `run_voxel_stream.sh`: RGB + depth + ORB-SLAM3 + voxel occupancy viewer (non-ROS).
 - `install_pi.sh`: Install Pi streaming dependencies.
 - `install_wsl.sh`: Install WSL streaming dependencies.
 - `depth_stream_cpp/`: C++ depth viewer sources (builds on demand).
 - `orbslam3_stream/`: ORB-SLAM3 streaming + undistort sources.
+- `voxel_stream/`: Voxel occupancy viewer sources.
 
 ## Quick Start
 
@@ -35,7 +37,7 @@ bash non_ros/install_wsl.sh
 
 
 ```
-bash non_ros/run_pi_stream_h264.sh --host <WSL_IP> --device /dev/video0
+bash non_ros/run_pi_stream_h264.sh --host 192.168.50.219 --device /dev/video1 --encoder x264
 ```
 
 Optional flags:
@@ -84,6 +86,21 @@ Defaults:
 - Calibration: `non_ros/orbslam3_stream/config/camera_left.yaml`
 - Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
 First run will clone ORB-SLAM3 into `non_ros/orbslam3_stream/vendor`.
+
+### 5) On WSL (Voxel map GUI)
+```
+bash non_ros/run_voxel_stream.sh --port 5600 --show-preview
+```
+This builds ORB-SLAM3 (if missing) and launches a Pangolin 3D view of the
+voxel occupancy map. Defaults:
+- Vocabulary: `non_ros/orbslam3_stream/vocabulary/ORBvoc.txt`
+- Calibration: `non_ros/orbslam3_stream/config/camera_left.yaml`
+- Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
+Voxel defaults:
+- `--voxel-size 0.1` meters
+- `--stride 4`
+- `--max-depth 6.0`
+- `--decay-sec 120`
 
 ## Notes
 - The sender script auto-selects an encoder:

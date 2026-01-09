@@ -24,6 +24,8 @@ bool StartsWith(const std::string & text, const std::string & prefix)
 
 }  // namespace
 
+namespace xlernav {
+
 bool LoadCameraInfoYaml(const std::string & path, sensor_msgs::msg::CameraInfo & info)
 {
   std::ifstream file(path);
@@ -99,3 +101,5 @@ bool LoadCameraInfoYaml(const std::string & path, sensor_msgs::msg::CameraInfo &
   info.height = height > 0 ? static_cast<uint32_t>(height) : info.height;
   return true;
 }
+
+}  // namespace xlernav

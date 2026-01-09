@@ -1,6 +1,7 @@
 #include "camera_info.hpp"
-
-#include <depth_anything_v3/tensorrt_depth_anything.hpp>
+#include "depth_estimator.hpp"
+#include "fps_counter.hpp"
+#include "stream_receiver.hpp"
 
 #include <opencv2/opencv.hpp>
 
@@ -12,7 +13,6 @@
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -29,36 +29,6 @@ struct Options {
   std::string colormap = "JET";
   double depth_min = std::numeric_limits<double>::quiet_NaN();
   double depth_max = std::numeric_limits<double>::quiet_NaN();
-};
-
-class FpsCounter {
-public:
-  explicit FpsCounter(double interval_sec)
-  : interval_sec_(std::max(interval_sec, 0.1)),
-    last_time_(std::chrono::steady_clock::now()),
-    fps_(0.0),
-    count_(0) {}
-
-  double tick()
-  {
-    ++count_;
-    auto now = std::chrono::steady_clock::now();
-    const double elapsed = std::chrono::duration<double>(now - last_time_).count();
-    if (elapsed >= interval_sec_) {
-      fps_ = count_ / elapsed;
-      count_ = 0;
-      last_time_ = now;
-    }
-    return fps_;
-  }
-
-  double fps() const { return fps_; }
-
-private:
-  double interval_sec_;
-  std::chrono::steady_clock::time_point last_time_;
-  double fps_;
-  int count_;
 };
 
 static std::string default_engine_path()
@@ -217,39 +187,29 @@ int main(int argc, char ** argv)
     return 1;
   }
 
-  const std::string pipeline =
-    "udpsrc port=" + std::to_string(opt.port) +
-    " caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-    "rtph264depay ! h264parse ! " + opt.decoder + " ! "
-    "videoconvert ! video/x-raw,format=BGR ! "
-    "appsink drop=true max-buffers=1 sync=false";
-
-  cv::VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
-  if (!cap.isOpened()) {
+  xlernav::StreamReceiver receiver(opt.port, opt.decoder);
+  if (!receiver.Open()) {
     std::cerr << "Failed to open video stream. Check GStreamer pipeline.\n";
     return 1;
   }
 
   sensor_msgs::msg::CameraInfo cam_info;
-  bool calib_loaded = LoadCameraInfoYaml(opt.camera_info_path, cam_info);
+  bool calib_loaded = xlernav::LoadCameraInfoYaml(opt.camera_info_path, cam_info);
   if (!calib_loaded) {
     std::cerr << "Warning: failed to load camera info from " << opt.camera_info_path << "\n";
   }
 
-  depth_anything_v3::TensorRTDepthAnything depth_engine(
-    opt.engine_path, "fp16", tensorrt_common::BuildConfig(), false, std::string(), {1, 1, 1}, (1 << 30));
+  xlernav::DepthEstimator depth_engine(opt.engine_path);
 
-  bool preprocess_ready = false;
-
-  FpsCounter rx_fps(opt.fps_interval);
-  FpsCounter infer_fps(opt.fps_interval);
+  xlernav::FpsCounter rx_fps(opt.fps_interval);
+  xlernav::FpsCounter infer_fps(opt.fps_interval);
   auto last_wait_log = std::chrono::steady_clock::now();
 
   cv::namedWindow("RGB + Depth", cv::WINDOW_NORMAL);
 
   while (true) {
     cv::Mat frame;
-    if (!cap.read(frame) || frame.empty()) {
+    if (!receiver.Read(frame) || frame.empty()) {
       if (opt.log_wait) {
         const auto now = std::chrono::steady_clock::now();
         const double elapsed = std::chrono::duration<double>(now - last_wait_log).count();
@@ -261,24 +221,22 @@ int main(int argc, char ** argv)
       continue;
     }
 
-    if (!preprocess_ready) {
-      depth_engine.initPreprocessBuffer(frame.cols, frame.rows);
+    if (cam_info.width != static_cast<uint32_t>(frame.cols) ||
+        cam_info.height != static_cast<uint32_t>(frame.rows)) {
       cam_info.width = static_cast<uint32_t>(frame.cols);
       cam_info.height = static_cast<uint32_t>(frame.rows);
       cam_info.header.frame_id = "camera";
-      preprocess_ready = true;
     }
 
     rx_fps.tick();
 
-    std::vector<cv::Mat> images{frame};
-    if (!depth_engine.doInference(images, cam_info, 0, false)) {
+    if (!depth_engine.Infer(frame, cam_info)) {
       std::cerr << "Depth inference failed.\n";
       continue;
     }
     infer_fps.tick();
 
-    const cv::Mat depth = depth_engine.getDepthImage();
+    const cv::Mat depth = depth_engine.Depth();
     cv::Mat depth_vis = depth_to_colormap(depth, opt);
 
     if (depth_vis.empty()) {
@@ -305,7 +263,6 @@ int main(int argc, char ** argv)
     }
   }
 
-  cap.release();
   cv::destroyAllWindows();
   return 0;
 }

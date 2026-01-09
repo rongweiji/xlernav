@@ -1,6 +1,7 @@
 #include "calibration.hpp"
-
-#include <depth_anything_v3/tensorrt_depth_anything.hpp>
+#include "depth_estimator.hpp"
+#include "fps_counter.hpp"
+#include "stream_receiver.hpp"
 
 #include <sensor_msgs/msg/camera_info.hpp>
 
@@ -45,36 +46,6 @@ struct Options {
   bool viewer = true;
   bool viewer_forced_off = false;
   enum class UiMode { kOrbslam, kCustom, kBoth } ui_mode = UiMode::kOrbslam;
-};
-
-class FpsCounter {
-public:
-  explicit FpsCounter(double interval_sec)
-  : interval_sec_(std::max(interval_sec, 0.1)),
-    last_time_(std::chrono::steady_clock::now()),
-    fps_(0.0),
-    count_(0) {}
-
-  double tick()
-  {
-    ++count_;
-    auto now = std::chrono::steady_clock::now();
-    const double elapsed = std::chrono::duration<double>(now - last_time_).count();
-    if (elapsed >= interval_sec_) {
-      fps_ = count_ / elapsed;
-      count_ = 0;
-      last_time_ = now;
-    }
-    return fps_;
-  }
-
-  double fps() const { return fps_; }
-
-private:
-  double interval_sec_;
-  std::chrono::steady_clock::time_point last_time_;
-  double fps_;
-  int count_;
 };
 
 struct PoseViewState {
@@ -455,8 +426,8 @@ int main(int argc, char ** argv)
     return 1;
   }
 
-  CalibrationData calib;
-  if (!LoadCalibrationYaml(opt.calib_path, calib)) {
+  xlernav::CalibrationData calib;
+  if (!xlernav::LoadCalibrationYaml(opt.calib_path, calib)) {
     std::cerr << "Failed to load calibration from " << opt.calib_path << "\n";
     return 1;
   }
@@ -471,7 +442,7 @@ int main(int argc, char ** argv)
   }
 
   cv::Mat map1, map2, new_k;
-  if (!BuildUndistortMaps(calib, opt.undistort_balance, opt.use_projection, map1, map2, new_k)) {
+  if (!xlernav::BuildUndistortMaps(calib, opt.undistort_balance, opt.use_projection, map1, map2, new_k)) {
     std::cerr << "Failed to build undistort maps.\n";
     return 1;
   }
@@ -491,30 +462,20 @@ int main(int argc, char ** argv)
             << "Undistort: " << (opt.use_projection ? "projection_matrix" : "intrinsics")
             << " (balance=" << opt.undistort_balance << ")\n";
 
-  const std::string pipeline =
-    "udpsrc port=" + std::to_string(opt.port) +
-    " caps=\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
-    "rtph264depay ! h264parse ! " + opt.decoder + " ! "
-    "videoconvert ! video/x-raw,format=BGR ! "
-    "appsink drop=true max-buffers=1 sync=false";
-
-  cv::VideoCapture cap(pipeline, cv::CAP_GSTREAMER);
-  if (!cap.isOpened()) {
+  xlernav::StreamReceiver receiver(opt.port, opt.decoder);
+  if (!receiver.Open()) {
     std::cerr << "Failed to open video stream. Check GStreamer pipeline.\n";
     return 1;
   }
 
-  depth_anything_v3::TensorRTDepthAnything depth_engine(
-    opt.engine_path, "fp16", tensorrt_common::BuildConfig(), false, std::string(), {1, 1, 1}, (1 << 30));
-
-  bool preprocess_ready = false;
+  xlernav::DepthEstimator depth_engine(opt.engine_path);
 
   sensor_msgs::msg::CameraInfo camera_info = make_camera_info(new_k, width, height);
 
   ORB_SLAM3::System slam(opt.vocab_path, orb_config, ORB_SLAM3::System::RGBD, opt.viewer);
 
-  FpsCounter rx_fps(opt.fps_interval);
-  FpsCounter depth_fps(opt.fps_interval);
+  xlernav::FpsCounter rx_fps(opt.fps_interval);
+  xlernav::FpsCounter depth_fps(opt.fps_interval);
   auto last_wait_log = std::chrono::steady_clock::now();
   const auto start_time = std::chrono::steady_clock::now();
 
@@ -533,7 +494,7 @@ int main(int argc, char ** argv)
   bool custom_ui_inited = false;
 
   while (g_running) {
-    if (!cap.read(frame) || frame.empty()) {
+    if (!receiver.Read(frame) || frame.empty()) {
       if (show_custom_ui && custom_ui_inited) {
         if (cv::waitKey(1) == 'q') {
           break;
@@ -552,23 +513,21 @@ int main(int argc, char ** argv)
 
     cv::remap(frame, rectified, map1, map2, cv::INTER_LINEAR);
 
-    if (!preprocess_ready) {
-      depth_engine.initPreprocessBuffer(rectified.cols, rectified.rows);
+    if (camera_info.width != static_cast<uint32_t>(rectified.cols) ||
+        camera_info.height != static_cast<uint32_t>(rectified.rows)) {
       camera_info.width = static_cast<uint32_t>(rectified.cols);
       camera_info.height = static_cast<uint32_t>(rectified.rows);
-      preprocess_ready = true;
     }
 
     rx_fps.tick();
 
-    std::vector<cv::Mat> images{rectified};
-    if (!depth_engine.doInference(images, camera_info, 0, false)) {
+    if (!depth_engine.Infer(rectified, camera_info)) {
       std::cerr << "Depth inference failed.\n";
       continue;
     }
     depth_fps.tick();
 
-    const cv::Mat depth = depth_engine.getDepthImage();
+    const cv::Mat depth = depth_engine.Depth();
     const auto now = std::chrono::steady_clock::now();
     const double timestamp = std::chrono::duration<double>(now - start_time).count();
 
@@ -685,7 +644,6 @@ int main(int argc, char ** argv)
   }
 
   slam.Shutdown();
-  cap.release();
   cv::destroyAllWindows();
   return 0;
 }

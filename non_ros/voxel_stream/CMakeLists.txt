@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(orbslam3_stream)
+project(voxel_stream)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,14 +16,15 @@ find_package(CUDA REQUIRED)
 
 add_subdirectory(../common common)
 
-set(ORB_SLAM3_DIR "${CMAKE_SOURCE_DIR}/vendor/ORB_SLAM3")
+set(ORB_SLAM3_DIR "${CMAKE_SOURCE_DIR}/../orbslam3_stream/vendor/ORB_SLAM3")
 set(ORB_SLAM3_LIB "${ORB_SLAM3_DIR}/lib/libORB_SLAM3.so")
 
-add_executable(orbslam3_stream
+add_executable(voxel_stream
   main.cpp
+  voxel_map.cpp
 )
 
-target_include_directories(orbslam3_stream PRIVATE
+target_include_directories(voxel_stream PRIVATE
   ${OpenCV_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
   ${Pangolin_INCLUDE_DIRS}
@@ -35,22 +36,22 @@ target_include_directories(orbslam3_stream PRIVATE
   ${ORB_SLAM3_DIR}/Thirdparty/g2o
 )
 
-target_compile_definitions(orbslam3_stream PRIVATE HAVE_EPOXY HAVE_EIGEN)
+target_compile_definitions(voxel_stream PRIVATE HAVE_EPOXY HAVE_EIGEN)
 
-target_link_libraries(orbslam3_stream
+target_link_libraries(voxel_stream
   xlernav_common
   ${OpenCV_LIBRARIES}
   ${ORB_SLAM3_LIB}
   ${Pangolin_LIBRARIES}
 )
 
-ament_target_dependencies(orbslam3_stream
+ament_target_dependencies(voxel_stream
   sensor_msgs
   std_msgs
   builtin_interfaces
   rosidl_runtime_cpp
 )
 
-set_target_properties(orbslam3_stream PROPERTIES
+set_target_properties(voxel_stream PROPERTIES
   BUILD_RPATH "/opt/ros/jazzy/lib;${DEPTH_ANYTHING_DIR}/lib;${ORB_SLAM3_DIR}/lib;${ORB_SLAM3_DIR}/Thirdparty/DBoW2/lib;${ORB_SLAM3_DIR}/Thirdparty/g2o/lib"
 )

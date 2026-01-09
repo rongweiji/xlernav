@@ -47,6 +47,8 @@ bool ParseDouble(const std::string & value, double & out)
 
 }  // namespace
 
+namespace xlernav {
+
 bool LoadCalibrationYaml(const std::string & path, CalibrationData & calib)
 {
   std::ifstream file(path);
@@ -242,3 +244,5 @@ bool BuildUndistortMaps(
 
   return !map1.empty();
 }
+
+}  // namespace xlernav
