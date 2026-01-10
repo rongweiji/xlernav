@@ -114,6 +114,7 @@ UI options:
 - `recv_view.py` uses an appsink with `max-buffers=1` and `drop=true`
   to keep the stream real-time by discarding old frames.
 - Use `--log-fps` to print FPS in the terminal.
+- Use `--log-timing` to print per-stage timing (decode/remap/depth/SLAM/voxel/UI).
 - If the UI opens but no frames arrive, add `--log-wait` to print a
   periodic "waiting for frames..." message.
 - Depth inference uses the local TensorRT engine under `non_ros/depth_stream_cpp/models`.

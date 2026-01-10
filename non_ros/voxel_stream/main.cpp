@@ -62,6 +62,7 @@ struct Options {
   std::string engine_path;
   bool show_fps = false;
   bool log_fps = false;
+  bool log_timing = false;
   double fps_interval = 1.0;
   bool log_wait = false;
   double wait_log_interval = 5.0;
@@ -145,6 +146,7 @@ static void print_usage(const char * prog)
             << "  --engine PATH        TensorRT engine file\n"
             << "  --show-fps           Show FPS in the UI status bar\n"
             << "  --log-fps            Print FPS to stdout\n"
+            << "  --log-timing         Print per-stage timing to stdout\n"
             << "  --fps-interval SEC   FPS update interval\n"
             << "  --log-wait           Log when waiting for frames\n"
             << "  --wait-log-interval  Seconds between wait logs\n"
@@ -194,6 +196,8 @@ static Options parse_args(int argc, char ** argv)
       opt.show_fps = true;
     } else if (arg == "--log-fps") {
       opt.log_fps = true;
+    } else if (arg == "--log-timing") {
+      opt.log_timing = true;
     } else if (arg == "--fps-interval") {
       opt.fps_interval = std::stod(next());
     } else if (arg == "--log-wait") {
@@ -370,6 +374,46 @@ struct SharedState {
   uint64_t image_seq = 0;
   uint64_t map_seq = 0;
 };
+
+struct TimingStats {
+  double read_ms = 0.0;
+  double remap_ms = 0.0;
+  double depth_ms = 0.0;
+  double slam_ms = 0.0;
+  double integrate_ms = 0.0;
+  double image_ms = 0.0;
+  double snapshot_ms = 0.0;
+  double loop_ms = 0.0;
+  int frames = 0;
+  int loops = 0;
+  int image_updates = 0;
+  int map_updates = 0;
+  int slam_updates = 0;
+  int integrate_updates = 0;
+
+  void reset()
+  {
+    read_ms = 0.0;
+    remap_ms = 0.0;
+    depth_ms = 0.0;
+    slam_ms = 0.0;
+    integrate_ms = 0.0;
+    image_ms = 0.0;
+    snapshot_ms = 0.0;
+    loop_ms = 0.0;
+    frames = 0;
+    loops = 0;
+    image_updates = 0;
+    map_updates = 0;
+    slam_updates = 0;
+    integrate_updates = 0;
+  }
+};
+
+static double to_ms(const std::chrono::steady_clock::duration & duration)
+{
+  return std::chrono::duration<double, std::milli>(duration).count();
+}
 
 class VoxelGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 public:
@@ -912,11 +956,29 @@ private:
     const auto map_interval = std::chrono::milliseconds(100);
     auto last_image_update = std::chrono::steady_clock::now();
     auto last_map_update = std::chrono::steady_clock::now();
+    TimingStats timing;
+    auto last_timing_log = std::chrono::steady_clock::now();
+    const auto timing_interval =
+      std::chrono::duration<double>(std::max(0.2, opt_.fps_interval));
 
     while (running_ && g_running) {
+      const auto loop_start = std::chrono::steady_clock::now();
+      const auto read_start = loop_start;
       const bool got_frame = receiver.Read(frame) && !frame.empty();
+      const auto read_end = std::chrono::steady_clock::now();
+      if (opt_.log_timing) {
+        timing.read_ms += to_ms(read_end - read_start);
+        timing.loops += 1;
+      }
       if (got_frame) {
+        if (opt_.log_timing) {
+          timing.frames += 1;
+        }
+        const auto remap_start = std::chrono::steady_clock::now();
         cv::remap(frame, rectified, map1, map2, cv::INTER_LINEAR);
+        if (opt_.log_timing) {
+          timing.remap_ms += to_ms(std::chrono::steady_clock::now() - remap_start);
+        }
         if (camera_info.width != static_cast<uint32_t>(rectified.cols) ||
             camera_info.height != static_cast<uint32_t>(rectified.rows)) {
           camera_info.width = static_cast<uint32_t>(rectified.cols);
@@ -925,7 +987,12 @@ private:
 
         rx_fps.tick();
 
-        if (!depth_engine.Infer(rectified, camera_info)) {
+        const auto depth_start = std::chrono::steady_clock::now();
+        const bool depth_ok = depth_engine.Infer(rectified, camera_info);
+        if (opt_.log_timing) {
+          timing.depth_ms += to_ms(std::chrono::steady_clock::now() - depth_start);
+        }
+        if (!depth_ok) {
           std::cerr << "Depth inference failed.\n";
         } else {
           depth_fps.tick();
@@ -933,7 +1000,12 @@ private:
           const auto now = std::chrono::steady_clock::now();
           const double timestamp = std::chrono::duration<double>(now - start_time).count();
 
+          const auto slam_start = std::chrono::steady_clock::now();
           const Sophus::SE3f Tcw = slam.TrackRGBD(rectified, depth, timestamp);
+          if (opt_.log_timing) {
+            timing.slam_ms += to_ms(std::chrono::steady_clock::now() - slam_start);
+            timing.slam_updates += 1;
+          }
           const int tracking_state = slam.GetTrackingState();
           const bool tracking_ok =
             tracking_state == ORB_SLAM3::Tracking::OK ||
@@ -941,6 +1013,7 @@ private:
           if (tracking_ok) {
             const Sophus::SE3f Twc = Tcw.inverse();
             trajectory.push_back(Twc.translation());
+            const auto integrate_start = std::chrono::steady_clock::now();
             voxel_map.Integrate(
               depth,
               rectified,
@@ -950,6 +1023,10 @@ private:
               opt_.max_depth,
               opt_.depth_scale,
               timestamp);
+            if (opt_.log_timing) {
+              timing.integrate_ms += to_ms(std::chrono::steady_clock::now() - integrate_start);
+              timing.integrate_updates += 1;
+            }
           }
 
           if (opt_.log_fps && rx_fps.fps() > 0.0 && depth_fps.fps() > 0.0) {
@@ -958,6 +1035,7 @@ private:
 
           const bool update_images = opt_.show_preview && (now - last_image_update >= image_interval);
           if (update_images) {
+            const auto image_start = std::chrono::steady_clock::now();
             const cv::Mat preview_rgb = opt_.show_raw ? frame : rectified;
             const cv::Mat depth_vis = colorize_depth(depth);
             QImage rgb_img = mat_to_qimage_rgb(preview_rgb);
@@ -971,9 +1049,14 @@ private:
               ++state_->image_seq;
             }
             last_image_update = now;
+            if (opt_.log_timing) {
+              timing.image_ms += to_ms(std::chrono::steady_clock::now() - image_start);
+              timing.image_updates += 1;
+            }
           }
 
           if (now - last_map_update >= map_interval) {
+            const auto snapshot_start = std::chrono::steady_clock::now();
             std::vector<xlernav::VoxelPoint> voxels = voxel_map.Snapshot(opt_.min_score);
             if (opt_.max_render > 0 && voxels.size() > opt_.max_render) {
               std::vector<xlernav::VoxelPoint> sampled;
@@ -994,6 +1077,10 @@ private:
               ++state_->map_seq;
             }
             last_map_update = now;
+            if (opt_.log_timing) {
+              timing.snapshot_ms += to_ms(std::chrono::steady_clock::now() - snapshot_start);
+              timing.map_updates += 1;
+            }
           }
         }
       } else if (opt_.log_wait) {
@@ -1002,6 +1089,35 @@ private:
         if (elapsed >= opt_.wait_log_interval) {
           std::cout << "[stream] waiting for frames...\n";
           last_wait_log = now;
+        }
+      }
+
+      if (opt_.log_timing) {
+        timing.loop_ms += to_ms(std::chrono::steady_clock::now() - loop_start);
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_timing_log >= timing_interval) {
+          const double elapsed = std::chrono::duration<double>(now - last_timing_log).count();
+          const auto avg = [](double total, int count) -> double {
+            return count > 0 ? total / static_cast<double>(count) : 0.0;
+          };
+          const double fps = timing.frames > 0 ? timing.frames / elapsed : 0.0;
+          std::cout << std::fixed << std::setprecision(2);
+          std::cout << "[timing] fps=" << fps
+                    << " read=" << avg(timing.read_ms, timing.loops)
+                    << " remap=" << avg(timing.remap_ms, timing.frames)
+                    << " depth=" << avg(timing.depth_ms, timing.frames)
+                    << " slam=" << avg(timing.slam_ms, timing.slam_updates)
+                    << " integ=" << avg(timing.integrate_ms, timing.integrate_updates)
+                    << " snap=" << avg(timing.snapshot_ms, timing.map_updates)
+                    << " img=" << avg(timing.image_ms, timing.image_updates)
+                    << " loop=" << avg(timing.loop_ms, timing.loops)
+                    << " (frames=" << timing.frames
+                    << " img=" << timing.image_updates
+                    << " map=" << timing.map_updates
+                    << " slam=" << timing.slam_updates
+                    << " integ=" << timing.integrate_updates << ")\n";
+          timing.reset();
+          last_timing_log = now;
         }
       }
     }
