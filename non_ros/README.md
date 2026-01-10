@@ -89,10 +89,13 @@ First run will clone ORB-SLAM3 into `non_ros/orbslam3_stream/vendor`.
 
 ### 5) On WSL (Voxel map GUI)
 ```
-bash non_ros/run_voxel_stream.sh --port 5600 --show-preview
+bash non_ros/run_voxel_stream.sh --port 5600
 ```
-This builds ORB-SLAM3 (if missing) and launches a Pangolin 3D view of the
-voxel occupancy map. Defaults:
+This builds ORB-SLAM3 (if missing) and launches a Qt window with:
+- RGB panel
+- Depth panel
+- 3D voxel + pose path view
+Defaults:
 - Vocabulary: `non_ros/orbslam3_stream/vocabulary/ORBvoc.txt`
 - Calibration: `non_ros/orbslam3_stream/config/camera_left.yaml`
 - Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
@@ -101,6 +104,9 @@ Voxel defaults:
 - `--stride 4`
 - `--max-depth 6.0`
 - `--decay-sec 120`
+UI options:
+- `--no-preview` hides the RGB/depth panels
+- `--show-raw` shows raw RGB instead of the rectified frame
 
 ## Notes
 - The sender script auto-selects an encoder:

@@ -22,6 +22,9 @@ sudo apt install -y \
   libjpeg-dev \
   libpng-dev \
   libtiff-dev \
+  libqt6opengl6-dev \
+  qt6-base-dev \
+  qt6-base-dev-tools \
   python3-gi \
   python3-opencv \
   python3-numpy

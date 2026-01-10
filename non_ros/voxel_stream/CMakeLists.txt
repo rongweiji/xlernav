@@ -8,6 +8,13 @@ find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 find_package(Pangolin REQUIRED)
+find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets QUIET)
+if (Qt6_FOUND)
+  set(QT_LIBS Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
+else()
+  find_package(Qt5 COMPONENTS Widgets OpenGL REQUIRED)
+  set(QT_LIBS Qt5::Widgets Qt5::OpenGL)
+endif()
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
@@ -43,6 +50,7 @@ target_link_libraries(voxel_stream
   ${OpenCV_LIBRARIES}
   ${ORB_SLAM3_LIB}
   ${Pangolin_LIBRARIES}
+  ${QT_LIBS}
 )
 
 ament_target_dependencies(voxel_stream
