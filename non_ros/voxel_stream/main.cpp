@@ -12,10 +12,14 @@
 #include <opencv2/opencv.hpp>
 
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include <QApplication>
 #include <QCoreApplication>
 #include <QCloseEvent>
+#include <QDockWidget>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
@@ -33,6 +37,7 @@
 #include <QSplitter>
 #include <QSurfaceFormat>
 #include <QTimer>
+#include <QPushButton>
 #include <QVector3D>
 #include <QVBoxLayout>
 
@@ -82,6 +87,12 @@ struct Options {
   double decay_sec = 120.0;
   std::size_t max_voxels = 200000;
   std::size_t max_render = 100000;
+  float view_roll_deg = 180.0f;
+  float view_pitch_deg = 0.0f;
+  float view_yaw_deg = 0.0f;
+  float view_x = 0.0f;
+  float view_y = 0.0f;
+  float view_z = 0.0f;
 };
 
 static std::atomic<bool> g_running{true};
@@ -169,7 +180,13 @@ static void print_usage(const char * prog)
             << "  --min-score N        Min occupancy score to render (default 1)\n"
             << "  --decay-sec S        Voxel decay seconds (default 120)\n"
             << "  --max-voxels N       Legacy flag (no-op with local grid)\n"
-            << "  --max-render N       Max voxels rendered (default 100000)\n";
+            << "  --max-render N       Max voxels rendered (default 100000)\n"
+            << "  --view-roll DEG      Display roll alignment (default 180)\n"
+            << "  --view-pitch DEG     Display pitch alignment (default 0)\n"
+            << "  --view-yaw DEG       Display yaw alignment (default 0)\n"
+            << "  --view-x M           Display X offset in meters (default 0)\n"
+            << "  --view-y M           Display Y offset in meters (default 0)\n"
+            << "  --view-z M           Display Z offset in meters (default 0)\n";
 }
 
 static Options parse_args(int argc, char ** argv)
@@ -244,6 +261,18 @@ static Options parse_args(int argc, char ** argv)
       opt.max_voxels = static_cast<std::size_t>(std::stoul(next()));
     } else if (arg == "--max-render") {
       opt.max_render = static_cast<std::size_t>(std::stoul(next()));
+    } else if (arg == "--view-roll") {
+      opt.view_roll_deg = std::stof(next());
+    } else if (arg == "--view-pitch") {
+      opt.view_pitch_deg = std::stof(next());
+    } else if (arg == "--view-yaw") {
+      opt.view_yaw_deg = std::stof(next());
+    } else if (arg == "--view-x") {
+      opt.view_x = std::stof(next());
+    } else if (arg == "--view-y") {
+      opt.view_y = std::stof(next());
+    } else if (arg == "--view-z") {
+      opt.view_z = std::stof(next());
     } else if (arg == "-h" || arg == "--help") {
       print_usage(argv[0]);
       std::exit(0);
@@ -266,6 +295,41 @@ static sensor_msgs::msg::CameraInfo make_camera_info(const cv::Mat & k, int widt
   info.d.assign(5, 0.0);
   info.distortion_model = "plumb_bob";
   return info;
+}
+
+static Eigen::Matrix4f make_view_transform(
+  float roll_deg,
+  float pitch_deg,
+  float yaw_deg,
+  float x,
+  float y,
+  float z)
+{
+  constexpr float kPi = 3.14159265358979323846f;
+  const float roll = roll_deg * kPi / 180.0f;
+  const float pitch = pitch_deg * kPi / 180.0f;
+  const float yaw = yaw_deg * kPi / 180.0f;
+
+  const Eigen::AngleAxisf roll_axis(roll, Eigen::Vector3f::UnitX());
+  const Eigen::AngleAxisf pitch_axis(pitch, Eigen::Vector3f::UnitY());
+  const Eigen::AngleAxisf yaw_axis(yaw, Eigen::Vector3f::UnitZ());
+  const Eigen::Matrix3f rotation = (yaw_axis * pitch_axis * roll_axis).toRotationMatrix();
+
+  Eigen::Matrix4f transform = Eigen::Matrix4f::Identity();
+  transform.block<3, 3>(0, 0) = rotation;
+  transform.block<3, 1>(0, 3) = Eigen::Vector3f(x, y, z);
+  return transform;
+}
+
+static Eigen::Matrix4f make_view_transform(const Options & opt)
+{
+  return make_view_transform(
+    opt.view_roll_deg,
+    opt.view_pitch_deg,
+    opt.view_yaw_deg,
+    opt.view_x,
+    opt.view_y,
+    opt.view_z);
 }
 
 static bool write_orbslam_config(
@@ -380,6 +444,8 @@ struct SharedState {
   QImage depth;
   std::vector<xlernav::VoxelPoint> voxels;
   std::vector<Eigen::Vector3f> trajectory;
+  Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
+  bool has_pose = false;
   double rx_fps = 0.0;
   double depth_fps = 0.0;
   float voxel_size = 0.1f;
@@ -431,9 +497,12 @@ class VoxelGLWidget : public QOpenGLWidget, protected QOpenGLFunctions {
 public:
   explicit VoxelGLWidget(QWidget * parent = nullptr);
 
+  void setDataTransform(const Eigen::Matrix4f & transform);
   void setData(
     const std::vector<xlernav::VoxelPoint> & voxels,
     const std::vector<Eigen::Vector3f> & trajectory,
+    const Eigen::Matrix4f & latest_pose,
+    bool has_pose,
     float voxel_size);
 
 protected:
@@ -467,6 +536,7 @@ private:
   float distance_ = 3.0f;
   QVector3D target_{0.0f, 0.0f, 0.0f};
   QPoint last_pos_;
+  Eigen::Matrix4f data_transform_ = Eigen::Matrix4f::Identity();
 };
 
 VoxelGLWidget::VoxelGLWidget(QWidget * parent)
@@ -478,27 +548,41 @@ VoxelGLWidget::VoxelGLWidget(QWidget * parent)
   setMinimumSize(640, 480);
 }
 
+void VoxelGLWidget::setDataTransform(const Eigen::Matrix4f & transform)
+{
+  data_transform_ = transform;
+}
+
 void VoxelGLWidget::setData(
   const std::vector<xlernav::VoxelPoint> & voxels,
   const std::vector<Eigen::Vector3f> & trajectory,
+  const Eigen::Matrix4f & latest_pose,
+  bool has_pose,
   float voxel_size)
 {
   voxel_size_ = voxel_size;
   point_size_ = std::clamp(voxel_size_ * 40.0f, 2.0f, 12.0f);
 
+  const Eigen::Matrix3f rot = data_transform_.block<3, 3>(0, 0);
+  const Eigen::Vector3f trans = data_transform_.block<3, 1>(0, 3);
+  auto transform_point = [&](float x, float y, float z) -> Eigen::Vector3f {
+    return rot * Eigen::Vector3f(x, y, z) + trans;
+  };
+
   voxel_data_.clear();
   voxel_data_.reserve(voxels.size() * 6);
   for (const auto & voxel : voxels) {
-    voxel_data_.push_back(voxel.center.x());
-    voxel_data_.push_back(voxel.center.y());
-    voxel_data_.push_back(voxel.center.z());
+    const Eigen::Vector3f p = transform_point(voxel.center.x(), voxel.center.y(), voxel.center.z());
+    voxel_data_.push_back(p.x());
+    voxel_data_.push_back(p.y());
+    voxel_data_.push_back(p.z());
     voxel_data_.push_back(voxel.color.x());
     voxel_data_.push_back(voxel.color.y());
     voxel_data_.push_back(voxel.color.z());
   }
 
   line_data_.clear();
-  auto push_line = [this](float x, float y, float z, float r, float g, float b) {
+  auto push_line_display = [this](float x, float y, float z, float r, float g, float b) {
     line_data_.push_back(x);
     line_data_.push_back(y);
     line_data_.push_back(z);
@@ -506,18 +590,52 @@ void VoxelGLWidget::setData(
     line_data_.push_back(g);
     line_data_.push_back(b);
   };
+  auto push_line_data = [&](float x, float y, float z, float r, float g, float b) {
+    const Eigen::Vector3f p = transform_point(x, y, z);
+    push_line_display(p.x(), p.y(), p.z(), r, g, b);
+  };
+
+  const float grid_extent = 5.0f;
+  const float grid_step = 0.5f;
+  const float grid_y = 0.0f;
+  const float grid_color = 0.18f;
+  for (float x = -grid_extent; x <= grid_extent + 1e-4f; x += grid_step) {
+    push_line_display(x, grid_y, -grid_extent, grid_color, grid_color, grid_color);
+    push_line_display(x, grid_y, grid_extent, grid_color, grid_color, grid_color);
+  }
+  for (float z = -grid_extent; z <= grid_extent + 1e-4f; z += grid_step) {
+    push_line_display(-grid_extent, grid_y, z, grid_color, grid_color, grid_color);
+    push_line_display(grid_extent, grid_y, z, grid_color, grid_color, grid_color);
+  }
 
   const float axis_len = 0.5f;
-  push_line(0.0f, 0.0f, 0.0f, 1.0f, 0.2f, 0.2f);
-  push_line(axis_len, 0.0f, 0.0f, 1.0f, 0.2f, 0.2f);
-  push_line(0.0f, 0.0f, 0.0f, 0.2f, 1.0f, 0.2f);
-  push_line(0.0f, axis_len, 0.0f, 0.2f, 1.0f, 0.2f);
-  push_line(0.0f, 0.0f, 0.0f, 0.2f, 0.2f, 1.0f);
-  push_line(0.0f, 0.0f, axis_len, 0.2f, 0.2f, 1.0f);
-  axis_vertices_ = 6;
+  push_line_display(0.0f, 0.0f, 0.0f, 1.0f, 0.2f, 0.2f);
+  push_line_display(axis_len, 0.0f, 0.0f, 1.0f, 0.2f, 0.2f);
+  push_line_display(0.0f, 0.0f, 0.0f, 0.2f, 1.0f, 0.2f);
+  push_line_display(0.0f, axis_len, 0.0f, 0.2f, 1.0f, 0.2f);
+  push_line_display(0.0f, 0.0f, 0.0f, 0.2f, 0.2f, 1.0f);
+  push_line_display(0.0f, 0.0f, axis_len, 0.2f, 0.2f, 1.0f);
+
+  if (has_pose) {
+    const Eigen::Matrix3f pose_rot = latest_pose.block<3, 3>(0, 0);
+    const Eigen::Vector3f pose_t = latest_pose.block<3, 1>(0, 3);
+    const Eigen::Matrix3f disp_rot = rot * pose_rot;
+    const Eigen::Vector3f disp_t = rot * pose_t + trans;
+    const float cam_axis = 0.25f;
+    const Eigen::Vector3f x_axis = disp_t + disp_rot * Eigen::Vector3f(cam_axis, 0.0f, 0.0f);
+    const Eigen::Vector3f y_axis = disp_t + disp_rot * Eigen::Vector3f(0.0f, cam_axis, 0.0f);
+    const Eigen::Vector3f z_axis = disp_t + disp_rot * Eigen::Vector3f(0.0f, 0.0f, cam_axis);
+    push_line_display(disp_t.x(), disp_t.y(), disp_t.z(), 0.9f, 0.2f, 0.2f);
+    push_line_display(x_axis.x(), x_axis.y(), x_axis.z(), 0.9f, 0.2f, 0.2f);
+    push_line_display(disp_t.x(), disp_t.y(), disp_t.z(), 0.2f, 0.9f, 0.2f);
+    push_line_display(y_axis.x(), y_axis.y(), y_axis.z(), 0.2f, 0.9f, 0.2f);
+    push_line_display(disp_t.x(), disp_t.y(), disp_t.z(), 0.2f, 0.2f, 0.9f);
+    push_line_display(z_axis.x(), z_axis.y(), z_axis.z(), 0.2f, 0.2f, 0.9f);
+  }
+  axis_vertices_ = static_cast<int>(line_data_.size() / 6);
 
   for (const auto & point : trajectory) {
-    push_line(point.x(), point.y(), point.z(), 0.2f, 1.0f, 0.2f);
+    push_line_data(point.x(), point.y(), point.z(), 0.2f, 1.0f, 0.2f);
   }
   traj_vertices_ = static_cast<int>(trajectory.size());
 
@@ -733,6 +851,7 @@ protected:
 private:
   void refreshUi();
   void updateImage(QLabel * label, const QImage & image, const QString & placeholder);
+  void applyViewTransform();
 
   SharedState * state_ = nullptr;
   QLabel * rgb_label_ = nullptr;
@@ -741,9 +860,20 @@ private:
   QWidget * preview_panel_ = nullptr;
   VoxelGLWidget * gl_widget_ = nullptr;
   QTimer * timer_ = nullptr;
+  QDoubleSpinBox * view_roll_ = nullptr;
+  QDoubleSpinBox * view_pitch_ = nullptr;
+  QDoubleSpinBox * view_yaw_ = nullptr;
+  QDoubleSpinBox * view_x_ = nullptr;
+  QDoubleSpinBox * view_y_ = nullptr;
+  QDoubleSpinBox * view_z_ = nullptr;
   uint64_t last_image_seq_ = 0;
   uint64_t last_map_seq_ = 0;
   bool show_fps_ = false;
+  std::vector<xlernav::VoxelPoint> cached_voxels_;
+  std::vector<Eigen::Vector3f> cached_trajectory_;
+  float cached_voxel_size_ = 0.1f;
+  Eigen::Matrix4f cached_pose_ = Eigen::Matrix4f::Identity();
+  bool cached_has_pose_ = false;
 };
 
 MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * parent)
@@ -770,7 +900,8 @@ MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * paren
   preview_layout->addWidget(depth_label_);
 
   gl_widget_ = new VoxelGLWidget(splitter);
-  gl_widget_->setData({}, {}, opt.voxel_size);
+  gl_widget_->setDataTransform(make_view_transform(opt));
+  gl_widget_->setData({}, {}, Eigen::Matrix4f::Identity(), false, opt.voxel_size);
 
   splitter->addWidget(preview_panel_);
   splitter->addWidget(gl_widget_);
@@ -785,6 +916,77 @@ MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * paren
 
   setCentralWidget(central);
 
+  auto * view_dock = new QDockWidget("View Align", this);
+  view_dock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  auto * view_panel = new QWidget(view_dock);
+  auto * view_layout = new QFormLayout(view_panel);
+  view_layout->setContentsMargins(8, 8, 8, 8);
+  view_layout->setSpacing(6);
+
+  auto make_spin = [&](double min, double max, double step, double value, int decimals) {
+    auto * spin = new QDoubleSpinBox(view_panel);
+    spin->setRange(min, max);
+    spin->setSingleStep(step);
+    spin->setDecimals(decimals);
+    spin->setValue(value);
+    return spin;
+  };
+
+  view_roll_ = make_spin(-180.0, 180.0, 1.0, opt.view_roll_deg, 1);
+  view_pitch_ = make_spin(-180.0, 180.0, 1.0, opt.view_pitch_deg, 1);
+  view_yaw_ = make_spin(-180.0, 180.0, 1.0, opt.view_yaw_deg, 1);
+  view_x_ = make_spin(-10.0, 10.0, 0.05, opt.view_x, 2);
+  view_y_ = make_spin(-10.0, 10.0, 0.05, opt.view_y, 2);
+  view_z_ = make_spin(-10.0, 10.0, 0.05, opt.view_z, 2);
+
+  view_layout->addRow("Roll (deg)", view_roll_);
+  view_layout->addRow("Pitch (deg)", view_pitch_);
+  view_layout->addRow("Yaw (deg)", view_yaw_);
+  view_layout->addRow("X (m)", view_x_);
+  view_layout->addRow("Y (m)", view_y_);
+  view_layout->addRow("Z (m)", view_z_);
+
+  auto * reset_button = new QPushButton("Reset", view_panel);
+  auto * print_button = new QPushButton("Print CLI", view_panel);
+  auto * button_row = new QWidget(view_panel);
+  auto * button_layout = new QHBoxLayout(button_row);
+  button_layout->setContentsMargins(0, 0, 0, 0);
+  button_layout->addWidget(reset_button);
+  button_layout->addWidget(print_button);
+  view_layout->addRow(button_row);
+
+  view_dock->setWidget(view_panel);
+  addDockWidget(Qt::RightDockWidgetArea, view_dock);
+
+  auto on_view_change = [this]() { applyViewTransform(); };
+  connect(view_roll_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+  connect(view_pitch_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+  connect(view_yaw_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+  connect(view_x_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+  connect(view_y_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+  connect(view_z_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [on_view_change](double) { on_view_change(); });
+
+  connect(reset_button, &QPushButton::clicked, this, [this, opt]() {
+    view_roll_->setValue(opt.view_roll_deg);
+    view_pitch_->setValue(opt.view_pitch_deg);
+    view_yaw_->setValue(opt.view_yaw_deg);
+    view_x_->setValue(opt.view_x);
+    view_y_->setValue(opt.view_y);
+    view_z_->setValue(opt.view_z);
+  });
+
+  connect(print_button, &QPushButton::clicked, this, [this]() {
+    if (!view_roll_ || !view_pitch_ || !view_yaw_ || !view_x_ || !view_y_ || !view_z_) {
+      return;
+    }
+    std::cout << "[view] --view-roll " << view_roll_->value()
+              << " --view-pitch " << view_pitch_->value()
+              << " --view-yaw " << view_yaw_->value()
+              << " --view-x " << view_x_->value()
+              << " --view-y " << view_y_->value()
+              << " --view-z " << view_z_->value() << "\n";
+  });
+
   if (show_fps_) {
     fps_label_ = new QLabel(this);
     statusBar()->addPermanentWidget(fps_label_);
@@ -793,6 +995,8 @@ MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * paren
   timer_ = new QTimer(this);
   connect(timer_, &QTimer::timeout, this, &MainWindow::refreshUi);
   timer_->start(33);
+
+  applyViewTransform();
 }
 
 void MainWindow::closeEvent(QCloseEvent * event)
@@ -807,6 +1011,8 @@ void MainWindow::refreshUi()
   QImage depth;
   std::vector<xlernav::VoxelPoint> voxels;
   std::vector<Eigen::Vector3f> trajectory;
+  Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
+  bool has_pose = false;
   double rx_fps = 0.0;
   double depth_fps = 0.0;
   float voxel_size = 0.1f;
@@ -826,6 +1032,8 @@ void MainWindow::refreshUi()
     if (map_seq != last_map_seq_) {
       voxels = state_->voxels;
       trajectory = state_->trajectory;
+      latest_pose = state_->latest_pose;
+      has_pose = state_->has_pose;
       voxel_size = state_->voxel_size;
     }
   }
@@ -843,8 +1051,43 @@ void MainWindow::refreshUi()
   }
 
   if (map_seq != last_map_seq_) {
-    gl_widget_->setData(voxels, trajectory, voxel_size);
+    cached_voxels_ = std::move(voxels);
+    cached_trajectory_ = std::move(trajectory);
+    cached_voxel_size_ = voxel_size;
+    cached_pose_ = latest_pose;
+    cached_has_pose_ = has_pose;
+    gl_widget_->setData(
+      cached_voxels_,
+      cached_trajectory_,
+      cached_pose_,
+      cached_has_pose_,
+      cached_voxel_size_);
     last_map_seq_ = map_seq;
+  }
+}
+
+void MainWindow::applyViewTransform()
+{
+  if (!gl_widget_ || !view_roll_ || !view_pitch_ || !view_yaw_ || !view_x_ || !view_y_ || !view_z_) {
+    return;
+  }
+
+  const Eigen::Matrix4f transform = make_view_transform(
+    static_cast<float>(view_roll_->value()),
+    static_cast<float>(view_pitch_->value()),
+    static_cast<float>(view_yaw_->value()),
+    static_cast<float>(view_x_->value()),
+    static_cast<float>(view_y_->value()),
+    static_cast<float>(view_z_->value()));
+  gl_widget_->setDataTransform(transform);
+
+  if (!cached_voxels_.empty() || !cached_trajectory_.empty() || cached_has_pose_) {
+    gl_widget_->setData(
+      cached_voxels_,
+      cached_trajectory_,
+      cached_pose_,
+      cached_has_pose_,
+      cached_voxel_size_);
   }
 }
 
@@ -939,7 +1182,13 @@ private:
               << "Undistort: " << (opt_.use_projection ? "projection_matrix" : "intrinsics")
               << " (balance=" << opt_.undistort_balance << ")\n"
               << "Voxel size: " << opt_.voxel_size << " m\n"
-              << "Grid: " << opt_.grid_x << " x " << opt_.grid_y << " x " << opt_.grid_z << "\n";
+              << "Grid: " << opt_.grid_x << " x " << opt_.grid_y << " x " << opt_.grid_z << "\n"
+              << "View align (deg): roll=" << opt_.view_roll_deg
+              << " pitch=" << opt_.view_pitch_deg
+              << " yaw=" << opt_.view_yaw_deg << "\n"
+              << "View offset (m): x=" << opt_.view_x
+              << " y=" << opt_.view_y
+              << " z=" << opt_.view_z << "\n";
 
     xlernav::StreamReceiver receiver(opt_.port, opt_.decoder);
     if (!receiver.Open()) {
@@ -961,6 +1210,8 @@ private:
 
     xlernav::VoxelMap voxel_map(opt_.voxel_size, opt_.grid_x, opt_.grid_y, opt_.grid_z, opt_.decay_sec);
     std::vector<Eigen::Vector3f> trajectory;
+    Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
+    bool has_pose = false;
 
     cv::Mat frame;
     cv::Mat rectified;
@@ -1026,6 +1277,8 @@ private:
           if (tracking_ok) {
             const Sophus::SE3f Twc = Tcw.inverse();
             trajectory.push_back(Twc.translation());
+            latest_pose = Twc.matrix();
+            has_pose = true;
             const auto integrate_start = std::chrono::steady_clock::now();
             voxel_map.Integrate(
               depth,
@@ -1087,6 +1340,8 @@ private:
               state_->voxels = std::move(voxels);
               state_->trajectory = trajectory;
               state_->voxel_size = voxel_map.voxel_size();
+              state_->latest_pose = latest_pose;
+              state_->has_pose = has_pose;
               ++state_->map_seq;
             }
             last_map_update = now;
