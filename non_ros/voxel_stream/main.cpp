@@ -71,6 +71,9 @@ struct Options {
   double camera_fps = 30.0;
   bool show_preview = true;
   bool show_raw = false;
+  int grid_x = 50;
+  int grid_y = 50;
+  int grid_z = 30;
   float voxel_size = 0.1f;
   float max_depth = 6.0f;
   float depth_scale = 1.0f;
@@ -156,13 +159,16 @@ static void print_usage(const char * prog)
             << "  --show-preview       Show RGB + depth panels (default)\n"
             << "  --no-preview         Hide RGB + depth panels\n"
             << "  --show-raw           Show raw RGB in the preview panel\n"
+            << "  --grid-x N           Local grid size in X (default 50)\n"
+            << "  --grid-y N           Local grid size in Y (default 50)\n"
+            << "  --grid-z N           Local grid size in Z (default 30)\n"
             << "  --voxel-size M       Voxel size in meters (default 0.1)\n"
             << "  --max-depth M        Max depth in meters (default 6.0)\n"
             << "  --depth-scale S      Depth scale multiplier (default 1.0)\n"
             << "  --stride N           Pixel stride for integration (default 4)\n"
             << "  --min-score N        Min occupancy score to render (default 1)\n"
             << "  --decay-sec S        Voxel decay seconds (default 120)\n"
-            << "  --max-voxels N       Max voxels stored (default 200000)\n"
+            << "  --max-voxels N       Legacy flag (no-op with local grid)\n"
             << "  --max-render N       Max voxels rendered (default 100000)\n";
 }
 
@@ -216,6 +222,12 @@ static Options parse_args(int argc, char ** argv)
       opt.show_preview = false;
     } else if (arg == "--show-raw") {
       opt.show_raw = true;
+    } else if (arg == "--grid-x") {
+      opt.grid_x = std::max(1, std::stoi(next()));
+    } else if (arg == "--grid-y") {
+      opt.grid_y = std::max(1, std::stoi(next()));
+    } else if (arg == "--grid-z") {
+      opt.grid_z = std::max(1, std::stoi(next()));
     } else if (arg == "--voxel-size") {
       opt.voxel_size = std::stof(next());
     } else if (arg == "--max-depth") {
@@ -926,7 +938,8 @@ private:
               << "Engine: " << opt_.engine_path << "\n"
               << "Undistort: " << (opt_.use_projection ? "projection_matrix" : "intrinsics")
               << " (balance=" << opt_.undistort_balance << ")\n"
-              << "Voxel size: " << opt_.voxel_size << " m\n";
+              << "Voxel size: " << opt_.voxel_size << " m\n"
+              << "Grid: " << opt_.grid_x << " x " << opt_.grid_y << " x " << opt_.grid_z << "\n";
 
     xlernav::StreamReceiver receiver(opt_.port, opt_.decoder);
     if (!receiver.Open()) {
@@ -946,7 +959,7 @@ private:
     auto last_wait_log = std::chrono::steady_clock::now();
     const auto start_time = std::chrono::steady_clock::now();
 
-    xlernav::VoxelMap voxel_map(opt_.voxel_size, opt_.max_voxels, opt_.decay_sec);
+    xlernav::VoxelMap voxel_map(opt_.voxel_size, opt_.grid_x, opt_.grid_y, opt_.grid_z, opt_.decay_sec);
     std::vector<Eigen::Vector3f> trajectory;
 
     cv::Mat frame;

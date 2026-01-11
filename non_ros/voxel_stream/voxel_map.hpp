@@ -4,32 +4,10 @@
 #include <opencv2/core.hpp>
 
 #include <cstddef>
-#include <unordered_map>
+#include <cstdint>
 #include <vector>
 
 namespace xlernav {
-
-struct VoxelKey {
-  int x = 0;
-  int y = 0;
-  int z = 0;
-
-  bool operator==(const VoxelKey & other) const
-  {
-    return x == other.x && y == other.y && z == other.z;
-  }
-};
-
-struct VoxelKeyHash {
-  std::size_t operator()(const VoxelKey & key) const noexcept;
-};
-
-struct VoxelData {
-  int score = 0;
-  Eigen::Vector3f color_acc = Eigen::Vector3f::Zero();
-  int color_count = 0;
-  double last_update = 0.0;
-};
 
 struct VoxelPoint {
   Eigen::Vector3f center;
@@ -39,7 +17,7 @@ struct VoxelPoint {
 
 class VoxelMap {
 public:
-  VoxelMap(float voxel_size, std::size_t max_voxels, double decay_sec);
+  VoxelMap(float voxel_size, int size_x, int size_y, int size_z, double decay_sec);
 
   void Integrate(
     const cv::Mat & depth,
@@ -54,27 +32,45 @@ public:
   std::vector<VoxelPoint> Snapshot(int min_score) const;
 
   float voxel_size() const { return voxel_size_; }
-  std::size_t size() const { return voxels_.size(); }
+  std::size_t size() const { return grid_.size(); }
 
 private:
-  void UpdateVoxel(
-    const VoxelKey & key,
-    bool occupied,
-    const Eigen::Vector3f * color,
-    double now_sec);
+  struct Cell {
+    int16_t score = 0;
+    uint16_t color_count = 0;
+    float color_acc[3] = {0.0f, 0.0f, 0.0f};
+    float last_update = 0.0f;
+  };
 
-  void PruneStale(double now_sec);
+  void Recenter(const Eigen::Vector3f & center);
+  void ShiftGrid(const Eigen::Vector3i & delta);
+  void ClearAll();
+  void ClearSliceX(int logical_x);
+  void ClearSliceY(int logical_y);
+  void ClearSliceZ(int logical_z);
+
+  bool WorldToIndex(const Eigen::Vector3f & point, Eigen::Vector3i & index) const;
+  std::size_t StorageIndex(const Eigen::Vector3i & logical) const;
+  std::size_t StorageIndex(int logical_x, int logical_y, int logical_z) const;
+  std::size_t StorageIndexStorage(int storage_x, int storage_y, int storage_z) const;
+
+  void UpdateCell(const Eigen::Vector3i & logical, bool occupied, const Eigen::Vector3f * color, double now_sec);
 
   float voxel_size_;
   float inv_voxel_size_;
-  std::size_t max_voxels_;
+  int size_x_;
+  int size_y_;
+  int size_z_;
   double decay_sec_;
-  double last_cleanup_sec_;
   int occ_inc_;
   int free_dec_;
   int score_min_;
   int score_max_;
-  std::unordered_map<VoxelKey, VoxelData, VoxelKeyHash> voxels_;
+  Eigen::Vector3f origin_;
+  Eigen::Vector3i offset_;
+  bool initialized_;
+  double last_time_sec_;
+  std::vector<Cell> grid_;
 };
 
 }  // namespace xlernav

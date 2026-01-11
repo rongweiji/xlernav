@@ -101,6 +101,7 @@ Defaults:
 - Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
 Voxel defaults:
 - `--voxel-size 0.1` meters
+- `--grid-x 50 --grid-y 50 --grid-z 30` (fixed local grid dimensions)
 - `--stride 4`
 - `--max-depth 6.0`
 - `--decay-sec 120`
