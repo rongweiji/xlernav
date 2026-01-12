@@ -101,10 +101,21 @@ Defaults:
 - Depth engine: `non_ros/depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
 Voxel defaults:
 - `--voxel-size 0.1` meters
-- `--grid-x 50 --grid-y 50 --grid-z 30` (fixed local grid dimensions)
+- `--grid-x 50 --grid-y 50 --grid-z 30` (local grid dimensions)
 - `--stride 4`
 - `--max-depth 6.0`
-- `--decay-sec 120`
+Map defaults:
+- Unbounded hash map (accumulates without range limits)
+ - Local grid is rolling (centered on the camera)
+Map options:
+- `--unbounded-map` uses the unbounded hash map (default)
+- `--bounded-map` disables the global map (local grid only)
+- `--fixed-grid` keeps the local grid fixed at the first pose
+- `--rolling-grid` recenters the local grid around the camera
+- `--grid-x 50 --grid-y 50 --grid-z 30` set local grid dimensions
+Local map:
+- A bounded grid is integrated every frame (fast local update).
+- When `--unbounded-map` is enabled, the global map is refreshed from the local grid at the UI update rate.
 UI options:
 - `--no-preview` hides the RGB/depth panels
 - `--show-raw` shows raw RGB instead of the rectified frame

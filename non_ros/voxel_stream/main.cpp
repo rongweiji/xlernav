@@ -51,6 +51,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -84,9 +85,10 @@ struct Options {
   float depth_scale = 1.0f;
   int stride = 4;
   int min_score = 1;
-  double decay_sec = 120.0;
   std::size_t max_voxels = 200000;
   std::size_t max_render = 100000;
+  bool rolling_grid = true;
+  bool unbounded_map = true;
   float view_roll_deg = 180.0f;
   float view_pitch_deg = 0.0f;
   float view_yaw_deg = 0.0f;
@@ -178,9 +180,12 @@ static void print_usage(const char * prog)
             << "  --depth-scale S      Depth scale multiplier (default 1.0)\n"
             << "  --stride N           Pixel stride for integration (default 4)\n"
             << "  --min-score N        Min occupancy score to render (default 1)\n"
-            << "  --decay-sec S        Voxel decay seconds (default 120)\n"
             << "  --max-voxels N       Legacy flag (no-op with local grid)\n"
             << "  --max-render N       Max voxels rendered (default 100000)\n"
+            << "  --unbounded-map      Enable global unbounded map (default)\n"
+            << "  --bounded-map        Disable global map (local grid only)\n"
+            << "  --fixed-grid         Keep local grid fixed at first pose\n"
+            << "  --rolling-grid       Keep local grid centered around the camera (default)\n"
             << "  --view-roll DEG      Display roll alignment (default 180)\n"
             << "  --view-pitch DEG     Display pitch alignment (default 0)\n"
             << "  --view-yaw DEG       Display yaw alignment (default 0)\n"
@@ -255,12 +260,18 @@ static Options parse_args(int argc, char ** argv)
       opt.stride = std::stoi(next());
     } else if (arg == "--min-score" || arg == "--min-hits") {
       opt.min_score = std::stoi(next());
-    } else if (arg == "--decay-sec") {
-      opt.decay_sec = std::stod(next());
     } else if (arg == "--max-voxels") {
       opt.max_voxels = static_cast<std::size_t>(std::stoul(next()));
     } else if (arg == "--max-render") {
       opt.max_render = static_cast<std::size_t>(std::stoul(next()));
+    } else if (arg == "--unbounded-map") {
+      opt.unbounded_map = true;
+    } else if (arg == "--bounded-map") {
+      opt.unbounded_map = false;
+    } else if (arg == "--fixed-grid") {
+      opt.rolling_grid = false;
+    } else if (arg == "--rolling-grid") {
+      opt.rolling_grid = true;
     } else if (arg == "--view-roll") {
       opt.view_roll_deg = std::stof(next());
     } else if (arg == "--view-pitch") {
@@ -1182,7 +1193,9 @@ private:
               << "Undistort: " << (opt_.use_projection ? "projection_matrix" : "intrinsics")
               << " (balance=" << opt_.undistort_balance << ")\n"
               << "Voxel size: " << opt_.voxel_size << " m\n"
-              << "Grid: " << opt_.grid_x << " x " << opt_.grid_y << " x " << opt_.grid_z << "\n"
+              << "Global map: " << (opt_.unbounded_map ? "enabled\n" : "disabled\n")
+              << "Local grid: " << opt_.grid_x << " x " << opt_.grid_y << " x " << opt_.grid_z
+              << (opt_.rolling_grid ? " (rolling)\n" : " (fixed)\n")
               << "View align (deg): roll=" << opt_.view_roll_deg
               << " pitch=" << opt_.view_pitch_deg
               << " yaw=" << opt_.view_yaw_deg << "\n"
@@ -1208,7 +1221,23 @@ private:
     auto last_wait_log = std::chrono::steady_clock::now();
     const auto start_time = std::chrono::steady_clock::now();
 
-    xlernav::VoxelMap voxel_map(opt_.voxel_size, opt_.grid_x, opt_.grid_y, opt_.grid_z, opt_.decay_sec);
+    xlernav::VoxelMap local_map(
+      opt_.voxel_size,
+      opt_.grid_x,
+      opt_.grid_y,
+      opt_.grid_z,
+      opt_.rolling_grid,
+      false);
+    std::unique_ptr<xlernav::VoxelMap> global_map;
+    if (opt_.unbounded_map) {
+      global_map = std::make_unique<xlernav::VoxelMap>(
+        opt_.voxel_size,
+        opt_.grid_x,
+        opt_.grid_y,
+        opt_.grid_z,
+        false,
+        true);
+    }
     std::vector<Eigen::Vector3f> trajectory;
     Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
     bool has_pose = false;
@@ -1280,15 +1309,14 @@ private:
             latest_pose = Twc.matrix();
             has_pose = true;
             const auto integrate_start = std::chrono::steady_clock::now();
-            voxel_map.Integrate(
+            local_map.Integrate(
               depth,
               rectified,
               new_k,
               Twc.matrix(),
               opt_.stride,
               opt_.max_depth,
-              opt_.depth_scale,
-              timestamp);
+              opt_.depth_scale);
             if (opt_.log_timing) {
               timing.integrate_ms += to_ms(std::chrono::steady_clock::now() - integrate_start);
               timing.integrate_updates += 1;
@@ -1323,7 +1351,13 @@ private:
 
           if (now - last_map_update >= map_interval) {
             const auto snapshot_start = std::chrono::steady_clock::now();
-            std::vector<xlernav::VoxelPoint> voxels = voxel_map.Snapshot(opt_.min_score);
+            std::vector<xlernav::VoxelPoint> local_voxels = local_map.Snapshot(opt_.min_score);
+            if (global_map) {
+              global_map->IntegratePoints(local_voxels);
+            }
+
+            std::vector<xlernav::VoxelPoint> voxels = global_map ?
+              global_map->Snapshot(opt_.min_score) : std::move(local_voxels);
             if (opt_.max_render > 0 && voxels.size() > opt_.max_render) {
               std::vector<xlernav::VoxelPoint> sampled;
               sampled.reserve(opt_.max_render);
@@ -1339,7 +1373,7 @@ private:
               std::lock_guard<std::mutex> lock(state_->mutex);
               state_->voxels = std::move(voxels);
               state_->trajectory = trajectory;
-              state_->voxel_size = voxel_map.voxel_size();
+              state_->voxel_size = local_map.voxel_size();
               state_->latest_pose = latest_pose;
               state_->has_pose = has_pose;
               ++state_->map_seq;

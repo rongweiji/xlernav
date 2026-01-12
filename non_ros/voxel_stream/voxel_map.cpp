@@ -20,13 +20,14 @@ int wrap_index(int value, int mod)
 }
 }  // namespace
 
-VoxelMap::VoxelMap(float voxel_size, int size_x, int size_y, int size_z, double decay_sec)
+VoxelMap::VoxelMap(float voxel_size, int size_x, int size_y, int size_z, bool rolling, bool unbounded)
   : voxel_size_(voxel_size > 0.0f ? voxel_size : 0.1f),
     inv_voxel_size_(1.0f / voxel_size_),
     size_x_(std::max(1, size_x)),
     size_y_(std::max(1, size_y)),
     size_z_(std::max(1, size_z)),
-    decay_sec_(decay_sec),
+    rolling_(rolling && !unbounded),
+    unbounded_(unbounded),
     occ_inc_(2),
     free_dec_(1),
     score_min_(-50),
@@ -34,13 +35,16 @@ VoxelMap::VoxelMap(float voxel_size, int size_x, int size_y, int size_z, double 
     origin_(Eigen::Vector3f::Zero()),
     offset_(Eigen::Vector3i::Zero()),
     initialized_(false),
-    last_time_sec_(0.0),
-    grid_(static_cast<std::size_t>(size_x_ * size_y_ * size_z_))
+    grid_(unbounded ? 0 : static_cast<std::size_t>(size_x_ * size_y_ * size_z_))
 {
 }
 
 void VoxelMap::ClearAll()
 {
+  if (unbounded_) {
+    map_.clear();
+    return;
+  }
   std::fill(grid_.begin(), grid_.end(), Cell{});
 }
 
@@ -64,6 +68,9 @@ std::size_t VoxelMap::StorageIndex(const Eigen::Vector3i & logical) const
 
 void VoxelMap::ClearSliceX(int logical_x)
 {
+  if (unbounded_) {
+    return;
+  }
   const int sx = wrap_index(logical_x + offset_.x(), size_x_);
   for (int y = 0; y < size_y_; ++y) {
     for (int z = 0; z < size_z_; ++z) {
@@ -74,6 +81,9 @@ void VoxelMap::ClearSliceX(int logical_x)
 
 void VoxelMap::ClearSliceY(int logical_y)
 {
+  if (unbounded_) {
+    return;
+  }
   const int sy = wrap_index(logical_y + offset_.y(), size_y_);
   for (int x = 0; x < size_x_; ++x) {
     for (int z = 0; z < size_z_; ++z) {
@@ -84,6 +94,9 @@ void VoxelMap::ClearSliceY(int logical_y)
 
 void VoxelMap::ClearSliceZ(int logical_z)
 {
+  if (unbounded_) {
+    return;
+  }
   const int sz = wrap_index(logical_z + offset_.z(), size_z_);
   for (int x = 0; x < size_x_; ++x) {
     for (int y = 0; y < size_y_; ++y) {
@@ -141,10 +154,18 @@ void VoxelMap::ShiftGrid(const Eigen::Vector3i & delta)
 void VoxelMap::Recenter(const Eigen::Vector3f & center)
 {
   if (!initialized_) {
-    origin_ = center - Eigen::Vector3f(size_x_, size_y_, size_z_) * (0.5f * voxel_size_);
+    if (!unbounded_) {
+      origin_ = center - Eigen::Vector3f(size_x_, size_y_, size_z_) * (0.5f * voxel_size_);
+    } else {
+      origin_ = Eigen::Vector3f::Zero();
+    }
     offset_ = Eigen::Vector3i::Zero();
     ClearAll();
     initialized_ = true;
+    return;
+  }
+
+  if (!rolling_ || unbounded_) {
     return;
   }
 
@@ -172,6 +193,13 @@ void VoxelMap::Recenter(const Eigen::Vector3f & center)
 
 bool VoxelMap::WorldToIndex(const Eigen::Vector3f & point, Eigen::Vector3i & index) const
 {
+  if (unbounded_) {
+    index = Eigen::Vector3i(
+      static_cast<int>(std::floor(point.x() * inv_voxel_size_)),
+      static_cast<int>(std::floor(point.y() * inv_voxel_size_)),
+      static_cast<int>(std::floor(point.z() * inv_voxel_size_)));
+    return true;
+  }
   const Eigen::Vector3f rel = (point - origin_) * inv_voxel_size_;
   const int ix = static_cast<int>(std::floor(rel.x()));
   const int iy = static_cast<int>(std::floor(rel.y()));
@@ -186,14 +214,23 @@ bool VoxelMap::WorldToIndex(const Eigen::Vector3f & point, Eigen::Vector3i & ind
 void VoxelMap::UpdateCell(
   const Eigen::Vector3i & logical,
   bool occupied,
-  const Eigen::Vector3f * color,
-  double now_sec)
+  const Eigen::Vector3f * color)
 {
-  Cell & cell = grid_[StorageIndex(logical)];
-  if (decay_sec_ > 0.0 && cell.last_update > 0.0f && (now_sec - cell.last_update) >= decay_sec_) {
-    cell = Cell{};
+  Cell * cell_ptr = nullptr;
+  if (unbounded_) {
+    auto it = map_.find(logical);
+    if (it == map_.end()) {
+      if (!occupied) {
+        return;
+      }
+      it = map_.emplace(logical, Cell{}).first;
+    }
+    cell_ptr = &it->second;
+  } else {
+    cell_ptr = &grid_[StorageIndex(logical)];
   }
 
+  Cell & cell = *cell_ptr;
   if (!occupied && cell.score == 0) {
     return;
   }
@@ -211,7 +248,9 @@ void VoxelMap::UpdateCell(
     }
   }
 
-  cell.last_update = static_cast<float>(now_sec);
+  if (unbounded_ && cell.score == 0) {
+    map_.erase(logical);
+  }
 }
 
 void VoxelMap::Integrate(
@@ -221,14 +260,12 @@ void VoxelMap::Integrate(
   const Eigen::Matrix4f & twc,
   int stride,
   float max_depth,
-  float depth_scale,
-  double now_sec)
+  float depth_scale)
 {
   if (depth.empty()) {
     return;
   }
 
-  last_time_sec_ = now_sec;
   const Eigen::Vector3f origin = twc.block<3, 1>(0, 3);
   Recenter(origin);
 
@@ -307,7 +344,7 @@ void VoxelMap::Integrate(
             continue;
           }
           last_idx = idx;
-          UpdateCell(idx, false, nullptr, now_sec);
+          UpdateCell(idx, false, nullptr);
         }
       }
 
@@ -323,11 +360,22 @@ void VoxelMap::Integrate(
           static_cast<float>(color[1]),
           static_cast<float>(color[0]));
         const Eigen::Vector3f color_norm = color_f / 255.0f;
-        UpdateCell(occ_idx, true, &color_norm, now_sec);
+        UpdateCell(occ_idx, true, &color_norm);
       } else {
-        UpdateCell(occ_idx, true, nullptr, now_sec);
+        UpdateCell(occ_idx, true, nullptr);
       }
     }
+  }
+}
+
+void VoxelMap::IntegratePoints(const std::vector<VoxelPoint> & voxels)
+{
+  for (const auto & voxel : voxels) {
+    Eigen::Vector3i idx;
+    if (!WorldToIndex(voxel.center, idx)) {
+      continue;
+    }
+    UpdateCell(idx, true, &voxel.color);
   }
 }
 
@@ -338,36 +386,57 @@ std::vector<VoxelPoint> VoxelMap::Snapshot(int min_score) const
   }
 
   std::vector<VoxelPoint> result;
-  result.reserve(grid_.size());
+  result.reserve(unbounded_ ? map_.size() : grid_.size());
 
-  const double now_sec = last_time_sec_;
+  if (unbounded_) {
+    for (const auto & entry : map_) {
+      const Eigen::Vector3i & idx = entry.first;
+      const Cell & cell = entry.second;
+      if (cell.score < min_score) {
+        continue;
+      }
 
-  for (int x = 0; x < size_x_; ++x) {
-    for (int y = 0; y < size_y_; ++y) {
-      for (int z = 0; z < size_z_; ++z) {
-        const Cell & cell = grid_[StorageIndex(x, y, z)];
-        if (cell.score < min_score) {
-          continue;
+      const Eigen::Vector3f center(
+        (static_cast<float>(idx.x()) + 0.5f) * voxel_size_,
+        (static_cast<float>(idx.y()) + 0.5f) * voxel_size_,
+        (static_cast<float>(idx.z()) + 0.5f) * voxel_size_);
+
+      Eigen::Vector3f color(0.9f, 0.9f, 0.9f);
+      if (cell.color_count > 0) {
+        const float inv_count = 1.0f / static_cast<float>(cell.color_count);
+        color = Eigen::Vector3f(
+          cell.color_acc[0] * inv_count,
+          cell.color_acc[1] * inv_count,
+          cell.color_acc[2] * inv_count);
+      }
+
+      result.push_back({center, color, static_cast<int>(cell.score)});
+    }
+  } else {
+    for (int x = 0; x < size_x_; ++x) {
+      for (int y = 0; y < size_y_; ++y) {
+        for (int z = 0; z < size_z_; ++z) {
+          const Cell & cell = grid_[StorageIndex(x, y, z)];
+          if (cell.score < min_score) {
+            continue;
+          }
+
+          const Eigen::Vector3f center(
+            origin_.x() + (static_cast<float>(x) + 0.5f) * voxel_size_,
+            origin_.y() + (static_cast<float>(y) + 0.5f) * voxel_size_,
+            origin_.z() + (static_cast<float>(z) + 0.5f) * voxel_size_);
+
+          Eigen::Vector3f color(0.9f, 0.9f, 0.9f);
+          if (cell.color_count > 0) {
+            const float inv_count = 1.0f / static_cast<float>(cell.color_count);
+            color = Eigen::Vector3f(
+              cell.color_acc[0] * inv_count,
+              cell.color_acc[1] * inv_count,
+              cell.color_acc[2] * inv_count);
+          }
+
+          result.push_back({center, color, static_cast<int>(cell.score)});
         }
-        if (decay_sec_ > 0.0 && cell.last_update > 0.0f && (now_sec - cell.last_update) >= decay_sec_) {
-          continue;
-        }
-
-        const Eigen::Vector3f center(
-          origin_.x() + (static_cast<float>(x) + 0.5f) * voxel_size_,
-          origin_.y() + (static_cast<float>(y) + 0.5f) * voxel_size_,
-          origin_.z() + (static_cast<float>(z) + 0.5f) * voxel_size_);
-
-        Eigen::Vector3f color(0.9f, 0.9f, 0.9f);
-        if (cell.color_count > 0) {
-          const float inv_count = 1.0f / static_cast<float>(cell.color_count);
-          color = Eigen::Vector3f(
-            cell.color_acc[0] * inv_count,
-            cell.color_acc[1] * inv_count,
-            cell.color_acc[2] * inv_count);
-        }
-
-        result.push_back({center, color, static_cast<int>(cell.score)});
       }
     }
   }
