@@ -33,6 +33,7 @@ public:
   void IntegratePoints(const std::vector<VoxelPoint> & voxels);
 
   std::vector<VoxelPoint> Snapshot(int min_score) const;
+  std::vector<VoxelPoint> EsdfPoints2D(int min_score, float max_distance) const;
 
   float voxel_size() const { return voxel_size_; }
   std::size_t size() const { return unbounded_ ? map_.size() : grid_.size(); }

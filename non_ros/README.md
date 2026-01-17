@@ -95,6 +95,7 @@ This builds ORB-SLAM3 (if missing) and launches a Qt window with:
 - RGB panel
 - Depth panel
 - 3D voxel + pose path view
+- 3D ESDF view (local grid projection)
 Defaults:
 - Vocabulary: `non_ros/orbslam3_stream/vocabulary/ORBvoc.txt`
 - Calibration: `non_ros/orbslam3_stream/config/camera_left.yaml`
@@ -116,6 +117,8 @@ Map options:
 Local map:
 - A bounded grid is integrated every frame (fast local update).
 - When `--unbounded-map` is enabled, the global map is refreshed from the local grid at the UI update rate.
+ESDF view:
+- The ESDF panel is derived from the local grid (height-map + 2D distance field in XZ).
 UI options:
 - `--no-preview` hides the RGB/depth panels
 - `--show-raw` shows raw RGB instead of the rectified frame

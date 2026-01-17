@@ -454,6 +454,7 @@ struct SharedState {
   QImage rgb;
   QImage depth;
   std::vector<xlernav::VoxelPoint> voxels;
+  std::vector<xlernav::VoxelPoint> esdf_points;
   std::vector<Eigen::Vector3f> trajectory;
   Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
   bool has_pose = false;
@@ -870,6 +871,7 @@ private:
   QLabel * fps_label_ = nullptr;
   QWidget * preview_panel_ = nullptr;
   VoxelGLWidget * gl_widget_ = nullptr;
+  VoxelGLWidget * esdf_widget_ = nullptr;
   QTimer * timer_ = nullptr;
   QDoubleSpinBox * view_roll_ = nullptr;
   QDoubleSpinBox * view_pitch_ = nullptr;
@@ -881,6 +883,7 @@ private:
   uint64_t last_map_seq_ = 0;
   bool show_fps_ = false;
   std::vector<xlernav::VoxelPoint> cached_voxels_;
+  std::vector<xlernav::VoxelPoint> cached_esdf_points_;
   std::vector<Eigen::Vector3f> cached_trajectory_;
   float cached_voxel_size_ = 0.1f;
   Eigen::Matrix4f cached_pose_ = Eigen::Matrix4f::Identity();
@@ -894,6 +897,7 @@ MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * paren
 
   auto * central = new QWidget(this);
   auto * splitter = new QSplitter(Qt::Horizontal, central);
+  auto * view_splitter = new QSplitter(Qt::Vertical, splitter);
 
   preview_panel_ = new QWidget(splitter);
   auto * preview_layout = new QVBoxLayout(preview_panel_);
@@ -910,12 +914,21 @@ MainWindow::MainWindow(SharedState * state, const Options & opt, QWidget * paren
   preview_layout->addWidget(rgb_label_);
   preview_layout->addWidget(depth_label_);
 
-  gl_widget_ = new VoxelGLWidget(splitter);
+  gl_widget_ = new VoxelGLWidget(view_splitter);
   gl_widget_->setDataTransform(make_view_transform(opt));
   gl_widget_->setData({}, {}, Eigen::Matrix4f::Identity(), false, opt.voxel_size);
 
+  esdf_widget_ = new VoxelGLWidget(view_splitter);
+  esdf_widget_->setDataTransform(make_view_transform(opt));
+  esdf_widget_->setData({}, {}, Eigen::Matrix4f::Identity(), false, opt.voxel_size);
+
+  view_splitter->addWidget(gl_widget_);
+  view_splitter->addWidget(esdf_widget_);
+  view_splitter->setStretchFactor(0, 1);
+  view_splitter->setStretchFactor(1, 1);
+
   splitter->addWidget(preview_panel_);
-  splitter->addWidget(gl_widget_);
+  splitter->addWidget(view_splitter);
   splitter->setStretchFactor(0, 0);
   splitter->setStretchFactor(1, 1);
 
@@ -1021,6 +1034,7 @@ void MainWindow::refreshUi()
   QImage rgb;
   QImage depth;
   std::vector<xlernav::VoxelPoint> voxels;
+  std::vector<xlernav::VoxelPoint> esdf_points;
   std::vector<Eigen::Vector3f> trajectory;
   Eigen::Matrix4f latest_pose = Eigen::Matrix4f::Identity();
   bool has_pose = false;
@@ -1042,6 +1056,7 @@ void MainWindow::refreshUi()
     }
     if (map_seq != last_map_seq_) {
       voxels = state_->voxels;
+      esdf_points = state_->esdf_points;
       trajectory = state_->trajectory;
       latest_pose = state_->latest_pose;
       has_pose = state_->has_pose;
@@ -1063,6 +1078,7 @@ void MainWindow::refreshUi()
 
   if (map_seq != last_map_seq_) {
     cached_voxels_ = std::move(voxels);
+    cached_esdf_points_ = std::move(esdf_points);
     cached_trajectory_ = std::move(trajectory);
     cached_voxel_size_ = voxel_size;
     cached_pose_ = latest_pose;
@@ -1073,6 +1089,14 @@ void MainWindow::refreshUi()
       cached_pose_,
       cached_has_pose_,
       cached_voxel_size_);
+    if (esdf_widget_) {
+      esdf_widget_->setData(
+        cached_esdf_points_,
+        cached_trajectory_,
+        cached_pose_,
+        cached_has_pose_,
+        cached_voxel_size_);
+    }
     last_map_seq_ = map_seq;
   }
 }
@@ -1091,10 +1115,21 @@ void MainWindow::applyViewTransform()
     static_cast<float>(view_y_->value()),
     static_cast<float>(view_z_->value()));
   gl_widget_->setDataTransform(transform);
+  if (esdf_widget_) {
+    esdf_widget_->setDataTransform(transform);
+  }
 
   if (!cached_voxels_.empty() || !cached_trajectory_.empty() || cached_has_pose_) {
     gl_widget_->setData(
       cached_voxels_,
+      cached_trajectory_,
+      cached_pose_,
+      cached_has_pose_,
+      cached_voxel_size_);
+  }
+  if (esdf_widget_ && (!cached_esdf_points_.empty() || !cached_trajectory_.empty() || cached_has_pose_)) {
+    esdf_widget_->setData(
+      cached_esdf_points_,
       cached_trajectory_,
       cached_pose_,
       cached_has_pose_,
@@ -1352,6 +1387,9 @@ private:
           if (now - last_map_update >= map_interval) {
             const auto snapshot_start = std::chrono::steady_clock::now();
             std::vector<xlernav::VoxelPoint> local_voxels = local_map.Snapshot(opt_.min_score);
+            constexpr float kEsdfMaxDistance = 2.0f;
+            std::vector<xlernav::VoxelPoint> esdf_points =
+              local_map.EsdfPoints2D(opt_.min_score, kEsdfMaxDistance);
             if (global_map) {
               global_map->IntegratePoints(local_voxels);
             }
@@ -1372,6 +1410,7 @@ private:
             {
               std::lock_guard<std::mutex> lock(state_->mutex);
               state_->voxels = std::move(voxels);
+              state_->esdf_points = std::move(esdf_points);
               state_->trajectory = trajectory;
               state_->voxel_size = local_map.voxel_size();
               state_->latest_pose = latest_pose;

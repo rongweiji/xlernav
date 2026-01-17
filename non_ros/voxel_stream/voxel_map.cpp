@@ -4,6 +4,8 @@
 #include <cmath>
 #include <limits>
 
+#include <opencv2/imgproc.hpp>
+
 namespace xlernav {
 
 namespace {
@@ -377,6 +379,74 @@ void VoxelMap::IntegratePoints(const std::vector<VoxelPoint> & voxels)
     }
     UpdateCell(idx, true, &voxel.color);
   }
+}
+
+std::vector<VoxelPoint> VoxelMap::EsdfPoints2D(int min_score, float max_distance) const
+{
+  if (unbounded_) {
+    return {};
+  }
+
+  if (min_score < 1) {
+    min_score = 1;
+  }
+  if (max_distance <= 0.0f) {
+    max_distance = voxel_size_;
+  }
+
+  const float height_threshold = origin_.y() + 0.4f;
+  cv::Mat free_mask(size_x_, size_z_, CV_8U, cv::Scalar(1));
+  bool has_occupied = false;
+
+  for (int x = 0; x < size_x_; ++x) {
+    for (int z = 0; z < size_z_; ++z) {
+      float max_height = -std::numeric_limits<float>::infinity();
+      for (int y = 0; y < size_y_; ++y) {
+        const Cell & cell = grid_[StorageIndex(x, y, z)];
+        if (cell.score < min_score) {
+          continue;
+        }
+        const float world_y = origin_.y() + (static_cast<float>(y) + 0.5f) * voxel_size_;
+        if (world_y > max_height) {
+          max_height = world_y;
+        }
+      }
+      if (max_height > height_threshold) {
+        free_mask.at<uint8_t>(x, z) = 0;
+        has_occupied = true;
+      }
+    }
+  }
+
+  cv::Mat dist;
+  if (has_occupied) {
+    cv::distanceTransform(free_mask, dist, cv::DIST_L2, 3);
+  } else {
+    dist = cv::Mat(size_x_, size_z_, CV_32F, cv::Scalar(max_distance * inv_voxel_size_));
+  }
+
+  const Eigen::Vector3f near_color(0.95f, 0.25f, 0.2f);
+  const Eigen::Vector3f far_color(0.2f, 0.9f, 1.0f);
+  const float base_y = origin_.y() + 0.5f * voxel_size_;
+
+  std::vector<VoxelPoint> result;
+  result.reserve(static_cast<std::size_t>(size_x_ * size_z_));
+
+  for (int x = 0; x < size_x_; ++x) {
+    for (int z = 0; z < size_z_; ++z) {
+      const float dist_cells = dist.at<float>(x, z);
+      const float dist_m = std::min(dist_cells * voxel_size_, max_distance);
+      const float t = std::min(dist_m / max_distance, 1.0f);
+      const Eigen::Vector3f color = near_color + t * (far_color - near_color);
+      const Eigen::Vector3f center(
+        origin_.x() + (static_cast<float>(x) + 0.5f) * voxel_size_,
+        base_y,
+        origin_.z() + (static_cast<float>(z) + 0.5f) * voxel_size_);
+      result.push_back({center, color, 1});
+    }
+  }
+
+  return result;
 }
 
 std::vector<VoxelPoint> VoxelMap::Snapshot(int min_score) const
