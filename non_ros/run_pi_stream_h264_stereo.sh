@@ -8,8 +8,7 @@ HEIGHT="480"
 FPS="30"
 BITRATE_KBPS="2000"
 HOST=""
-PORT_LEFT="5600"
-PORT_RIGHT="5601"
+PORT="5600"
 ENCODER="auto" # auto|v4l2|omx|x264
 
 usage() {
@@ -23,8 +22,7 @@ Options:
   --height N                  Frame height (default: ${HEIGHT})
   --fps N                     Frame rate (default: ${FPS})
   --bitrate N                 Bitrate in Kbps (default: ${BITRATE_KBPS})
-  --port-left N               UDP port for left stream (default: ${PORT_LEFT})
-  --port-right N              UDP port for right stream (default: ${PORT_RIGHT})
+  --port N                    UDP port for combined stream (default: ${PORT})
   --encoder auto|v4l2|omx|x264 Encoder selection (default: ${ENCODER})
 USAGE
 }
@@ -59,12 +57,8 @@ while [[ $# -gt 0 ]]; do
       HOST="${2:-}"
       shift 2
       ;;
-    --port-left)
-      PORT_LEFT="${2:-}"
-      shift 2
-      ;;
-    --port-right)
-      PORT_RIGHT="${2:-}"
+    --port)
+      PORT="${2:-}"
       shift 2
       ;;
     --encoder)
@@ -100,6 +94,7 @@ if [[ "${ENCODER}" == "auto" ]]; then
 fi
 
 BITRATE_BPS="$((BITRATE_KBPS * 1000))"
+COMBINED_WIDTH="$((WIDTH * 2))"
 
 case "${ENCODER}" in
   v4l2)
@@ -121,28 +116,30 @@ case "${ENCODER}" in
 esac
 
 PIPELINE="\
-v4l2src device=${DEVICE_LEFT} do-timestamp=true ! \
-video/x-raw,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! \
-queue max-size-buffers=1 leaky=downstream ! \
+compositor name=comp sink_0::xpos=0 sink_1::xpos=${WIDTH} ! \
+video/x-raw,width=${COMBINED_WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! \
 ${PRE_ENC} ! \
 ${ENC} ! \
 h264parse config-interval=1 ! \
 rtph264pay pt=96 config-interval=1 timestamp-offset=0 seqnum-offset=0 ! \
-udpsink host=${HOST} port=${PORT_LEFT} sync=false async=false \
+udpsink host=${HOST} port=${PORT} sync=false async=false \
+v4l2src device=${DEVICE_LEFT} do-timestamp=true ! \
+video/x-raw,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! \
+videoconvert ! video/x-raw,format=I420 ! \
+queue max-size-buffers=1 leaky=downstream ! \
+comp.sink_0 \
 v4l2src device=${DEVICE_RIGHT} do-timestamp=true ! \
 video/x-raw,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! \
+videoconvert ! video/x-raw,format=I420 ! \
 queue max-size-buffers=1 leaky=downstream ! \
-${PRE_ENC} ! \
-${ENC} ! \
-h264parse config-interval=1 ! \
-rtph264pay pt=97 config-interval=1 timestamp-offset=0 seqnum-offset=0 ! \
-udpsink host=${HOST} port=${PORT_RIGHT} sync=false async=false"
+comp.sink_1"
 
 echo "Starting stereo stream:"
 echo "  Encoder: ${ENCODER}"
-echo "  Left:    ${DEVICE_LEFT} -> udp://${HOST}:${PORT_LEFT}"
-echo "  Right:   ${DEVICE_RIGHT} -> udp://${HOST}:${PORT_RIGHT}"
-echo "  Size:    ${WIDTH}x${HEIGHT} @ ${FPS}fps"
+echo "  Left:    ${DEVICE_LEFT}"
+echo "  Right:   ${DEVICE_RIGHT}"
+echo "  Size:    ${COMBINED_WIDTH}x${HEIGHT} (2x ${WIDTH}x${HEIGHT}) @ ${FPS}fps"
+echo "  Target:  udp://${HOST}:${PORT}"
 echo ""
 
 eval "gst-launch-1.0 -v ${PIPELINE}"

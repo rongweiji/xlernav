@@ -29,13 +29,10 @@
 #include <utility>
 
 struct Options {
-  int port_left = 5600;
-  int port_right = 5601;
-  int payload_left = 96;
-  int payload_right = 97;
+  int port = 5600;
+  int payload = 96;
   std::string decoder = "avdec_h264";
   int latency_ms = 30;
-  int sync_threshold_ms = 40;
   int pull_timeout_ms = 5;
   double fps_interval = 1.0;
   bool log_wait = false;
@@ -45,13 +42,10 @@ struct Options {
 static void print_usage(const char * prog)
 {
   std::cout << "Usage: " << prog << " [options]\n"
-            << "  --port-left N           UDP port for left stream (default 5600)\n"
-            << "  --port-right N          UDP port for right stream (default 5601)\n"
-            << "  --payload-left N        RTP payload type for left (default 96)\n"
-            << "  --payload-right N       RTP payload type for right (default 97)\n"
+            << "  --port N                UDP port for combined stream (default 5600)\n"
+            << "  --payload N             RTP payload type for combined stream (default 96)\n"
             << "  --decoder NAME          GStreamer decoder (default avdec_h264)\n"
             << "  --latency-ms N          RTP jitterbuffer latency (default 30)\n"
-            << "  --sync-threshold-ms N   Max timestamp delta to sync (default 40)\n"
             << "  --pull-timeout-ms N     Appsink pull timeout in ms (default 5)\n"
             << "  --fps-interval SEC      FPS update interval\n"
             << "  --log-wait              Log when waiting for frames\n"
@@ -71,20 +65,14 @@ static Options parse_args(int argc, char ** argv)
       return argv[++i];
     };
 
-    if (arg == "--port-left") {
-      opt.port_left = std::stoi(next());
-    } else if (arg == "--port-right") {
-      opt.port_right = std::stoi(next());
-    } else if (arg == "--payload-left") {
-      opt.payload_left = std::stoi(next());
-    } else if (arg == "--payload-right") {
-      opt.payload_right = std::stoi(next());
+    if (arg == "--port") {
+      opt.port = std::stoi(next());
+    } else if (arg == "--payload") {
+      opt.payload = std::stoi(next());
     } else if (arg == "--decoder") {
       opt.decoder = next();
     } else if (arg == "--latency-ms") {
       opt.latency_ms = std::stoi(next());
-    } else if (arg == "--sync-threshold-ms") {
-      opt.sync_threshold_ms = std::stoi(next());
     } else if (arg == "--pull-timeout-ms") {
       opt.pull_timeout_ms = std::stoi(next());
     } else if (arg == "--fps-interval") {
@@ -272,9 +260,8 @@ static QImage mat_to_qimage(const cv::Mat & bgr)
 
 class StereoWindow : public QWidget {
 public:
-  StereoWindow(SharedState * state, int sync_threshold_ms, int refresh_ms)
-  : state_(state),
-    sync_threshold_ms_(sync_threshold_ms)
+  StereoWindow(SharedState * state, int refresh_ms)
+  : state_(state)
   {
     setWindowTitle("Stereo Stream");
 
@@ -357,13 +344,11 @@ private:
 
     left_fps_label_->setText(QString("Left FPS: %1").arg(left_fps, 0, 'f', 1));
     right_fps_label_->setText(QString("Right FPS: %1").arg(right_fps, 0, 'f', 1));
-    sync_label_->setText(QString("Sync delta: %1 ms (threshold %2 ms)")
-                         .arg(sync_delta_ms, 0, 'f', 2)
-                         .arg(sync_threshold_ms_));
+    sync_label_->setText(QString("Sync delta: %1 ms")
+                         .arg(sync_delta_ms, 0, 'f', 2));
   }
 
   SharedState * state_;
-  int sync_threshold_ms_;
   QLabel * left_fps_label_ = nullptr;
   QLabel * right_fps_label_ = nullptr;
   QLabel * sync_label_ = nullptr;
@@ -373,81 +358,68 @@ private:
   uint64_t last_frame_id_ = 0;
 };
 
+static bool split_stereo_frame(const cv::Mat & frame, cv::Mat & left, cv::Mat & right)
+{
+  if (frame.empty()) {
+    return false;
+  }
+  if (frame.cols < 2 || (frame.cols % 2) != 0) {
+    return false;
+  }
+  const int half = frame.cols / 2;
+  left = frame(cv::Rect(0, 0, half, frame.rows)).clone();
+  right = frame(cv::Rect(half, 0, half, frame.rows)).clone();
+  return true;
+}
+
 static void capture_loop(const Options & opt, SharedState * state, std::atomic<bool> * running)
 {
-  GstReceiver left_rx(opt.port_left, opt.payload_left, opt.decoder, opt.latency_ms);
-  GstReceiver right_rx(opt.port_right, opt.payload_right, opt.decoder, opt.latency_ms);
+  GstReceiver rx(opt.port, opt.payload, opt.decoder, opt.latency_ms);
 
-  if (!left_rx.Open() || !right_rx.Open()) {
+  if (!rx.Open()) {
     running->store(false);
     return;
   }
 
-  xlernav::FpsCounter left_fps(opt.fps_interval);
-  xlernav::FpsCounter right_fps(opt.fps_interval);
-
-  Frame left_frame;
-  Frame right_frame;
-  bool have_left = false;
-  bool have_right = false;
-
+  xlernav::FpsCounter rx_fps(opt.fps_interval);
   auto last_wait_log = std::chrono::steady_clock::now();
-  const int64_t sync_threshold_ns = static_cast<int64_t>(opt.sync_threshold_ms) * 1000000LL;
+  bool warned_split = false;
 
   while (running->load()) {
-    Frame candidate;
-    bool got_left = left_rx.Read(candidate, opt.pull_timeout_ms);
-    if (got_left) {
-      left_frame = std::move(candidate);
-      have_left = true;
-      left_fps.tick();
-    }
-
-    bool got_right = right_rx.Read(candidate, opt.pull_timeout_ms);
-    if (got_right) {
-      right_frame = std::move(candidate);
-      have_right = true;
-      right_fps.tick();
-    }
-
-    if (!got_left && !got_right && opt.log_wait) {
-      const auto now = std::chrono::steady_clock::now();
-      const double elapsed = std::chrono::duration<double>(now - last_wait_log).count();
-      if (elapsed >= opt.wait_log_interval) {
-        std::cout << "[stream] waiting for frames...\n";
-        last_wait_log = now;
+    Frame frame;
+    if (!rx.Read(frame, opt.pull_timeout_ms)) {
+      if (opt.log_wait) {
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double>(now - last_wait_log).count();
+        if (elapsed >= opt.wait_log_interval) {
+          std::cout << "[stream] waiting for frames...\n";
+          last_wait_log = now;
+        }
       }
-    }
-
-    if (!have_left || !have_right) {
       continue;
     }
 
-    const bool use_pts = left_frame.pts_valid && right_frame.pts_valid;
-    const int64_t left_ts = use_pts ? left_frame.pts_ns : left_frame.recv_ns;
-    const int64_t right_ts = use_pts ? right_frame.pts_ns : right_frame.recv_ns;
-    const int64_t delta = std::llabs(left_ts - right_ts);
-    if (delta > sync_threshold_ns) {
-      if (left_ts < right_ts) {
-        have_left = false;
-      } else {
-        have_right = false;
+    rx_fps.tick();
+
+    cv::Mat left;
+    cv::Mat right;
+    if (!split_stereo_frame(frame.image, left, right)) {
+      if (!warned_split) {
+        std::cerr << "Stereo frame split failed (expected side-by-side with even width).\n";
+        warned_split = true;
       }
       continue;
     }
 
     {
       std::lock_guard<std::mutex> lock(state->mutex);
-      state->left = left_frame.image;
-      state->right = right_frame.image;
-      state->left_fps = left_fps.fps();
-      state->right_fps = right_fps.fps();
-      state->sync_delta_ms = static_cast<double>(delta) / 1000000.0;
+      state->left = std::move(left);
+      state->right = std::move(right);
+      state->left_fps = rx_fps.fps();
+      state->right_fps = rx_fps.fps();
+      state->sync_delta_ms = 0.0;
       state->frame_id++;
     }
-
-    have_left = false;
-    have_right = false;
   }
 }
 
@@ -469,7 +441,7 @@ int main(int argc, char ** argv)
   std::thread worker(capture_loop, opt, &state, &running);
 
   QApplication app(argc, argv);
-  StereoWindow window(&state, opt.sync_threshold_ms, 33);
+  StereoWindow window(&state, 33);
   window.show();
 
   QObject::connect(&app, &QCoreApplication::aboutToQuit, [&running]() {

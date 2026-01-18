@@ -5,9 +5,9 @@ decodes to BGR frames and displays a live preview.
 
 ## Files
 - `run_pi_stream_h264.sh`: Capture `/dev/videoX` and send H.264 RTP/UDP.
-- `run_pi_stream_h264_stereo.sh`: Capture two cameras and send stereo H.264 RTP/UDP.
+- `run_pi_stream_h264_stereo.sh`: Capture two cameras and send a combined stereo H.264 RTP/UDP stream.
 - `recv_view.py`: Receive, decode, and display frames (latest-only).
-- `run_stereo_stream_cpp.sh`: Qt stereo viewer (receives two streams).
+- `run_stereo_stream_cpp.sh`: Qt stereo viewer (receives combined stream).
 - `run_depth_stream_cpp.sh`: C++ depth viewer using the TensorRT C++ engine.
 - `run_orbslam3_stream.sh`: RGB + depth + ORB-SLAM3 viewer (non-ROS).
 - `run_voxel_stream.sh`: RGB + depth + ORB-SLAM3 + voxel occupancy viewer (non-ROS).
@@ -33,7 +33,7 @@ bash non_ros/install_wsl.sh
 ```
 
 Port settting on powershell : 
-New-NetFirewallRule -DisplayName "WSL UDP 5600-5601" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5600-5601
+New-NetFirewallRule -DisplayName "WSL UDP 5600" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5600
 
 
 ### 1) On the Pi (sender)
@@ -54,7 +54,7 @@ Optional flags:
 
 ### 1b) On the Pi (stereo sender)
 ```
-bash non_ros/run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video1 --device-right /dev/video3 --encoder x264
+bash non_ros/run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video1 --device-right /dev/video3 --encoder x264 --port 5600
 ```
 
 ### 2) On WSL (receiver GUI)
@@ -66,7 +66,7 @@ Press `q` to quit the viewer.
 
 ### 2b) On WSL (stereo GUI)
 ```
-bash non_ros/run_stereo_stream_cpp.sh --port-left 5600 --port-right 5601
+bash non_ros/run_stereo_stream_cpp.sh --port 5600
 ```
 
 ### 3) On WSL (RGB + Depth GUI)
