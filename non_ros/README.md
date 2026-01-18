@@ -68,6 +68,17 @@ Press `q` to quit the viewer.
 ```
 bash non_ros/run_stereo_stream_cpp.sh --port 5600
 ```
+Use the "Start Recording" button to save frames under `non_ros/sample_<timestamp>/left` and `right`
+with a `timestamps.txt` map file.
+
+### 2c) Replay a recorded session
+```
+python3 non_ros/replay_stereo_recording.py
+```
+Pass a folder explicitly if needed:
+```
+python3 non_ros/replay_stereo_recording.py non_ros/sample_20250101_120000 --show-fps
+```
 
 ### 3) On WSL (RGB + Depth GUI)
 ```

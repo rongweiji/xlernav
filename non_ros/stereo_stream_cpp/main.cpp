@@ -12,6 +12,7 @@
 #include <QImage>
 #include <QLabel>
 #include <QPixmap>
+#include <QPushButton>
 #include <QString>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -19,10 +20,16 @@
 
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
+#include <memory>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -96,6 +103,28 @@ static int64_t now_ns()
 {
   const auto now = std::chrono::steady_clock::now();
   return std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+}
+
+namespace fs = std::filesystem;
+
+static fs::path non_ros_root()
+{
+  return fs::path(__FILE__).parent_path().parent_path();
+}
+
+static std::string timestamp_label()
+{
+  const auto now = std::chrono::system_clock::now();
+  const std::time_t raw = std::chrono::system_clock::to_time_t(now);
+  std::tm tm_value{};
+#if defined(_WIN32)
+  localtime_s(&tm_value, &raw);
+#else
+  localtime_r(&raw, &tm_value);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&tm_value, "%Y%m%d_%H%M%S");
+  return oss.str();
 }
 
 struct Frame {
@@ -238,6 +267,14 @@ private:
   GstElement * appsink_ = nullptr;
 };
 
+struct RecordSession {
+  fs::path root_dir;
+  fs::path left_dir;
+  fs::path right_dir;
+  std::ofstream map;
+  uint64_t frame_index = 0;
+};
+
 struct SharedState {
   std::mutex mutex;
   cv::Mat left;
@@ -246,6 +283,7 @@ struct SharedState {
   double right_fps = 0.0;
   double sync_delta_ms = 0.0;
   uint64_t frame_id = 0;
+  std::shared_ptr<RecordSession> recording;
 };
 
 static QImage mat_to_qimage(const cv::Mat & bgr)
@@ -268,6 +306,8 @@ public:
     left_fps_label_ = new QLabel("Left FPS: --");
     right_fps_label_ = new QLabel("Right FPS: --");
     sync_label_ = new QLabel("Sync delta: -- ms");
+    record_status_label_ = new QLabel("Recording: OFF");
+    record_button_ = new QPushButton("Start Recording");
 
     left_image_ = new QLabel();
     right_image_ = new QLabel();
@@ -291,15 +331,96 @@ public:
     auto * main_layout = new QVBoxLayout();
     main_layout->addLayout(row_layout);
     main_layout->addWidget(sync_label_);
+    auto * record_layout = new QHBoxLayout();
+    record_layout->addWidget(record_status_label_);
+    record_layout->addStretch();
+    record_layout->addWidget(record_button_);
+    main_layout->addLayout(record_layout);
 
     setLayout(main_layout);
 
     timer_ = new QTimer(this);
     connect(timer_, &QTimer::timeout, this, [this]() { refresh_ui(); });
     timer_->start(refresh_ms);
+
+    connect(record_button_, &QPushButton::clicked, this, [this]() { toggle_recording(); });
   }
 
 private:
+  std::shared_ptr<RecordSession> create_record_session(std::string & error)
+  {
+    const fs::path base = non_ros_root();
+    const std::string stamp = timestamp_label();
+    fs::path root = base / ("sample_" + stamp);
+
+    if (fs::exists(root)) {
+      int suffix = 1;
+      while (fs::exists(root)) {
+        root = base / ("sample_" + stamp + "_" + std::to_string(suffix++));
+      }
+    }
+
+    std::error_code ec;
+    fs::create_directories(root / "left", ec);
+    if (ec) {
+      error = "Failed to create left folder: " + ec.message();
+      return nullptr;
+    }
+    fs::create_directories(root / "right", ec);
+    if (ec) {
+      error = "Failed to create right folder: " + ec.message();
+      return nullptr;
+    }
+
+    auto session = std::make_shared<RecordSession>();
+    session->root_dir = root;
+    session->left_dir = root / "left";
+    session->right_dir = root / "right";
+    session->map.open((root / "timestamps.txt").string(), std::ios::out);
+    if (!session->map.is_open()) {
+      error = "Failed to open timestamps.txt for writing.";
+      return nullptr;
+    }
+    session->map << "frame,timestamp_ns\n";
+    return session;
+  }
+
+  void toggle_recording()
+  {
+    bool was_recording = false;
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      was_recording = static_cast<bool>(state_->recording);
+      if (was_recording) {
+        state_->recording.reset();
+      }
+    }
+
+    if (was_recording) {
+      record_status_label_->setText("Recording: OFF");
+      record_button_->setText("Start Recording");
+      std::cout << "[record] stopped\n";
+      return;
+    }
+
+    std::string error;
+    std::shared_ptr<RecordSession> session = create_record_session(error);
+    if (!session) {
+      std::cerr << "[record] " << error << "\n";
+      return;
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      state_->recording = session;
+    }
+
+    record_status_label_->setText(QString("Recording: ON (%1)")
+                                  .arg(QString::fromStdString(session->root_dir.string())));
+    record_button_->setText("Stop Recording");
+    std::cout << "[record] started: " << session->root_dir << "\n";
+  }
+
   void refresh_ui()
   {
     cv::Mat left;
@@ -352,6 +473,8 @@ private:
   QLabel * left_fps_label_ = nullptr;
   QLabel * right_fps_label_ = nullptr;
   QLabel * sync_label_ = nullptr;
+  QLabel * record_status_label_ = nullptr;
+  QPushButton * record_button_ = nullptr;
   QLabel * left_image_ = nullptr;
   QLabel * right_image_ = nullptr;
   QTimer * timer_ = nullptr;
@@ -409,6 +532,29 @@ static void capture_loop(const Options & opt, SharedState * state, std::atomic<b
         warned_split = true;
       }
       continue;
+    }
+
+    std::shared_ptr<RecordSession> recording;
+    {
+      std::lock_guard<std::mutex> lock(state->mutex);
+      recording = state->recording;
+    }
+
+    if (recording) {
+      const uint64_t index = ++recording->frame_index;
+      std::ostringstream name;
+      name << std::setw(7) << std::setfill('0') << index;
+      const std::string base = name.str();
+      const fs::path left_path = recording->left_dir / (base + ".jpg");
+      const fs::path right_path = recording->right_dir / (base + ".jpg");
+      cv::imwrite(left_path.string(), left);
+      cv::imwrite(right_path.string(), right);
+
+      const int64_t timestamp_ns = frame.pts_valid ? frame.pts_ns : frame.recv_ns;
+      recording->map << base << "," << timestamp_ns << "\n";
+      if ((index % 30) == 0) {
+        recording->map.flush();
+      }
     }
 
     {
