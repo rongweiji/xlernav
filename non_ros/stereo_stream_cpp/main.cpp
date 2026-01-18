@@ -35,7 +35,7 @@ struct Options {
   int payload_right = 97;
   std::string decoder = "avdec_h264";
   int latency_ms = 30;
-  int sync_threshold_ms = 15;
+  int sync_threshold_ms = 40;
   int pull_timeout_ms = 5;
   double fps_interval = 1.0;
   bool log_wait = false;
@@ -51,7 +51,7 @@ static void print_usage(const char * prog)
             << "  --payload-right N       RTP payload type for right (default 97)\n"
             << "  --decoder NAME          GStreamer decoder (default avdec_h264)\n"
             << "  --latency-ms N          RTP jitterbuffer latency (default 30)\n"
-            << "  --sync-threshold-ms N   Max timestamp delta to sync (default 15)\n"
+            << "  --sync-threshold-ms N   Max timestamp delta to sync (default 40)\n"
             << "  --pull-timeout-ms N     Appsink pull timeout in ms (default 5)\n"
             << "  --fps-interval SEC      FPS update interval\n"
             << "  --log-wait              Log when waiting for frames\n"

@@ -32,6 +32,10 @@ On WSL:
 bash non_ros/install_wsl.sh
 ```
 
+Port settting on powershell : 
+New-NetFirewallRule -DisplayName "WSL UDP 5600-5601" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5600-5601
+
+
 ### 1) On the Pi (sender)
 
 ```
@@ -50,7 +54,7 @@ Optional flags:
 
 ### 1b) On the Pi (stereo sender)
 ```
-bash non_ros/run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video0 --device-right /dev/video1
+bash non_ros/run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video1 --device-right /dev/video3 --encoder x264
 ```
 
 ### 2) On WSL (receiver GUI)

@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(OpenCV 4 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-app-1.0)
+pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0)
 
 find_package(Qt6 COMPONENTS Widgets QUIET)
 if (Qt6_FOUND)

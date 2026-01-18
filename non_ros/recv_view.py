@@ -10,10 +10,10 @@ gi.require_version("Gst", "1.0")
 from gi.repository import Gst
 
 
-def build_pipeline(port: int, decoder: str) -> str:
+def build_pipeline(port: int, decoder: str, payload: int) -> str:
     return (
         f"udpsrc port={port} caps="
-        f"\"application/x-rtp,media=video,encoding-name=H264,payload=96\" ! "
+        f"\"application/x-rtp,media=video,encoding-name=H264,payload={payload}\" ! "
         "rtph264depay ! h264parse ! "
         f"{decoder} ! "
         "videoconvert ! video/x-raw,format=BGR ! "
@@ -24,6 +24,7 @@ def build_pipeline(port: int, decoder: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Receive H.264 RTP/UDP stream and show preview.")
     parser.add_argument("--port", type=int, default=5600, help="UDP port to listen on")
+    parser.add_argument("--payload", type=int, default=96, help="RTP payload type (default 96)")
     parser.add_argument("--decoder", default="avdec_h264", help="GStreamer decoder element")
     parser.add_argument("--window", default="Pi Stream", help="OpenCV window title")
     parser.add_argument("--show-fps", action="store_true", help="Overlay FPS in the preview")
@@ -36,7 +37,7 @@ def main() -> None:
 
     Gst.init(None)
 
-    pipeline_str = build_pipeline(args.port, args.decoder)
+    pipeline_str = build_pipeline(args.port, args.decoder, args.payload)
     pipeline = Gst.parse_launch(pipeline_str)
     appsink = pipeline.get_by_name("sink")
 

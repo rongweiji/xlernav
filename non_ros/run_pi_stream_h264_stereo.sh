@@ -127,7 +127,7 @@ queue max-size-buffers=1 leaky=downstream ! \
 ${PRE_ENC} ! \
 ${ENC} ! \
 h264parse config-interval=1 ! \
-rtph264pay pt=96 config-interval=1 ! \
+rtph264pay pt=96 config-interval=1 timestamp-offset=0 seqnum-offset=0 ! \
 udpsink host=${HOST} port=${PORT_LEFT} sync=false async=false \
 v4l2src device=${DEVICE_RIGHT} do-timestamp=true ! \
 video/x-raw,width=${WIDTH},height=${HEIGHT},framerate=${FPS}/1 ! \
@@ -135,7 +135,7 @@ queue max-size-buffers=1 leaky=downstream ! \
 ${PRE_ENC} ! \
 ${ENC} ! \
 h264parse config-interval=1 ! \
-rtph264pay pt=97 config-interval=1 ! \
+rtph264pay pt=97 config-interval=1 timestamp-offset=0 seqnum-offset=0 ! \
 udpsink host=${HOST} port=${PORT_RIGHT} sync=false async=false"
 
 echo "Starting stereo stream:"
