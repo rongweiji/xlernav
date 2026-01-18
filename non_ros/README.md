@@ -5,13 +5,16 @@ decodes to BGR frames and displays a live preview.
 
 ## Files
 - `run_pi_stream_h264.sh`: Capture `/dev/videoX` and send H.264 RTP/UDP.
+- `run_pi_stream_h264_stereo.sh`: Capture two cameras and send stereo H.264 RTP/UDP.
 - `recv_view.py`: Receive, decode, and display frames (latest-only).
+- `run_stereo_stream_cpp.sh`: Qt stereo viewer (receives two streams).
 - `run_depth_stream_cpp.sh`: C++ depth viewer using the TensorRT C++ engine.
 - `run_orbslam3_stream.sh`: RGB + depth + ORB-SLAM3 viewer (non-ROS).
 - `run_voxel_stream.sh`: RGB + depth + ORB-SLAM3 + voxel occupancy viewer (non-ROS).
 - `install_pi.sh`: Install Pi streaming dependencies.
 - `install_wsl.sh`: Install WSL streaming dependencies.
 - `depth_stream_cpp/`: C++ depth viewer sources (builds on demand).
+- `stereo_stream_cpp/`: Qt stereo viewer sources.
 - `orbslam3_stream/`: ORB-SLAM3 streaming + undistort sources.
 - `voxel_stream/`: Voxel occupancy viewer sources.
 
@@ -45,12 +48,22 @@ Optional flags:
 --width 640 --height 480 --fps 30 --bitrate 2000 --port 5600 --encoder auto
 ```
 
+### 1b) On the Pi (stereo sender)
+```
+bash non_ros/run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video0 --device-right /dev/video1
+```
+
 ### 2) On WSL (receiver GUI)
 ```
 python3 non_ros/recv_view.py --port 5600 --show-fps
 ```
 
 Press `q` to quit the viewer.
+
+### 2b) On WSL (stereo GUI)
+```
+bash non_ros/run_stereo_stream_cpp.sh --port-left 5600 --port-right 5601
+```
 
 ### 3) On WSL (RGB + Depth GUI)
 ```
