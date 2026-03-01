@@ -4,6 +4,22 @@ project(orbslam3_stream)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(XLERNAV_ENABLE_RERUN "Enable Rerun C++ visualization output" ON)
+
+if(XLERNAV_ENABLE_RERUN)
+  include(FetchContent)
+  if(DEFINED ENV{XLERNAV_FETCHCONTENT_DIR} AND NOT "$ENV{XLERNAV_FETCHCONTENT_DIR}" STREQUAL "")
+    set(FETCHCONTENT_BASE_DIR "$ENV{XLERNAV_FETCHCONTENT_DIR}")
+  else()
+    set(FETCHCONTENT_BASE_DIR "/tmp/xlernav_fetchcontent")
+  endif()
+  FetchContent_Declare(
+    rerun_sdk
+    URL https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip
+  )
+  FetchContent_MakeAvailable(rerun_sdk)
+endif()
+
 find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
@@ -21,6 +37,7 @@ set(ORB_SLAM3_LIB "${ORB_SLAM3_DIR}/lib/libORB_SLAM3.so")
 
 add_executable(orbslam3_stream
   main.cpp
+  ../common/rerun_stream_logger.cpp
 )
 
 target_include_directories(orbslam3_stream PRIVATE
@@ -36,6 +53,9 @@ target_include_directories(orbslam3_stream PRIVATE
 )
 
 target_compile_definitions(orbslam3_stream PRIVATE HAVE_EPOXY HAVE_EIGEN)
+if(XLERNAV_ENABLE_RERUN)
+  target_compile_definitions(orbslam3_stream PRIVATE XLERNAV_WITH_RERUN)
+endif()
 
 target_link_libraries(orbslam3_stream
   xlernav_common
@@ -43,6 +63,9 @@ target_link_libraries(orbslam3_stream
   ${ORB_SLAM3_LIB}
   ${Pangolin_LIBRARIES}
 )
+if(XLERNAV_ENABLE_RERUN)
+  target_link_libraries(orbslam3_stream rerun_sdk)
+endif()
 
 ament_target_dependencies(orbslam3_stream
   sensor_msgs

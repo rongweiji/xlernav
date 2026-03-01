@@ -1,165 +1,86 @@
-# Non-ROS Streaming (Pi -> WSL)
+# xlernav
 
-Low-latency H.264 stream over RTP/UDP from the Pi, with a WSL viewer that
-decodes to BGR frames and displays a live preview.
+Non-ROS visual SLAM/voxel pipelines with Rerun C++ visualization.
 
-## Files
-- `run_pi_stream_h264.sh`: Capture `/dev/videoX` and send H.264 RTP/UDP.
-- `run_pi_stream_h264_stereo.sh`: Capture two cameras and send a combined stereo H.264 RTP/UDP stream.
-- `recv_view.py`: Receive, decode, and display frames (latest-only).
-- `run_stereo_stream_cpp.sh`: Qt stereo viewer (receives combined stream).
-- `run_depth_stream_cpp.sh`: C++ depth viewer using the TensorRT C++ engine.
-- `run_orbslam3_stream.sh`: RGB + depth + ORB-SLAM3 viewer (non-ROS).
-- `run_voxel_stream.sh`: RGB + depth + ORB-SLAM3 + voxel occupancy viewer (non-ROS).
-- `install_pi.sh`: Install Pi streaming dependencies.
-- `install_wsl.sh`: Install WSL streaming dependencies.
-- `depth_stream_cpp/`: C++ depth viewer sources (builds on demand).
-- `stereo_stream_cpp/`: Qt stereo viewer sources.
-- `orbslam3_stream/`: ORB-SLAM3 streaming + undistort sources.
-- `voxel_stream/`: Voxel occupancy viewer sources.
+## What is in this repo
 
-## Quick Start
+- Live stream path (Pi -> WSL):
+  - `run_pi_stream_h264.sh`
+  - `run_pi_stream_h264_stereo.sh`
+  - `run_orbslam3_stream.sh` (ORB-SLAM3 + Depth Anything + Rerun)
+  - `run_voxel_stream.sh` (ORB-SLAM3 + voxel map + Rerun)
+- Backend selector:
+  - `run_slam.sh --backend orbslam3|cuvslam`
+- cuVSLAM backend source (submodule):
+  - `third_party/cuVSLAM`
 
-### 0) Install dependencies
+## Visualization
 
-On the Pi:
-```
+The stream apps use Rerun C++ logging instead of local OpenCV/Qt windows.
+
+Useful flags:
+- `--rerun-save <file.rrd>`
+- `--no-rerun-spawn`
+- `--rerun-log-every-n <N>`
+- `--no-rerun-images`
+
+## Setup
+
+### 1) Dependencies
+
+On Pi:
+```bash
 bash install_pi.sh
 ```
 
 On WSL:
-```
+```bash
 bash install_wsl.sh
 ```
 
-Port settting on powershell : 
-New-NetFirewallRule -DisplayName "WSL UDP 5600" -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5600
+### 2) Submodules
 
-
-### 1) On the Pi (sender)
-
-```
-  v4l2-ctl --list-devices 
+```bash
+git submodule update --init --recursive
 ```
 
+## Run ORB-SLAM3 stream backend
 
-```
-bash run_pi_stream_h264.sh --host 192.168.50.219 --device /dev/video1 --encoder x264
-```
-
-Optional flags:
-```
---width 640 --height 480 --fps 30 --bitrate 2000 --port 5600 --encoder auto
+On Pi sender:
+```bash
+bash run_pi_stream_h264.sh --host <WSL_IP> --device /dev/video1 --encoder x264
 ```
 
-### 1b) On the Pi (stereo sender)
-```
-bash run_pi_stream_h264_stereo.sh --host 192.168.50.219 --device-left /dev/video1 --device-right /dev/video3 --encoder x264 --port 5600
-```
-
-### 2) On WSL (receiver GUI)
-```
-python3 recv_view.py --port 5600 --show-fps
+On WSL receiver/tracker:
+```bash
+bash run_orbslam3_stream.sh --port 5600 --rerun-save outputs/orbslam3_stream.rrd
 ```
 
-Press `q` to quit the viewer.
-
-### 2b) On WSL (stereo GUI)
-```
-bash run_stereo_stream_cpp.sh --port 5600
-```
-Use the "Start Recording" button to save frames under `sample_<timestamp>/left` and `right`
-with a `timestamps.txt` map file.
-
-### 2c) Replay a recorded session
-```
-python3 replay_stereo_recording.py
-```
-Pass a folder explicitly if needed:
-```
-python3 replay_stereo_recording.py sample_20250101_120000 --show-fps
+Voxel mapping variant:
+```bash
+bash run_voxel_stream.sh --port 5600 --rerun-save outputs/voxel_stream.rrd
 ```
 
-### 3) On WSL (RGB + Depth GUI)
-```
-bash run_depth_stream_cpp.sh --port 5600 --show-fps
-```
-This uses the C++ Depth Anything TensorRT engine (no Python bindings).
-Engine defaults to `depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`.
-Camera calibration defaults to `depth_stream_cpp/config/camera_left.yaml`.
+## Run cuVSLAM backend
 
-### 4) On WSL (ORB-SLAM3 GUI)
+```bash
+bash run_slam.sh --backend cuvslam -- \
+  --dataset_root data/tum/rgbd_dataset_freiburg1_xyz \
+  --dataset_format tum \
+  --enable_rerun \
+  --rerun_save outputs/cuvslam_tum.rrd
 ```
-bash install_wsl.sh
-bash run_orbslam3_stream.sh --port 5600
-```
-This builds ORB-SLAM3 (if missing) and launches the Pangolin viewer.
-Undistort is applied before depth + SLAM.
 
-UI modes:
-- Default (ORB-SLAM3 viewer): `--ui orbslam` (default)
-- Custom UI (single OpenCV window with RGB + depth + 3D pose): `--ui custom`
-- Both viewers: `--ui both` (may be unreliable on WSL)
+Note: `cuVSLAM` requires NVIDIA `libcuvslam.so` (see `third_party/cuVSLAM/README.md`).
 
-Custom UI options:
-- `--show-fps` overlays rx/depth FPS on the custom UI
-- `--show-raw` shows the raw frame instead of the rectified frame
-Use the mouse in the 3D panel to rotate/zoom the pose view.
-The custom UI uses CPU rendering for the 3D panel to avoid OpenGL crashes on WSL.
+## Tested dataset assets in this repo
 
-If the undistorted view is black, try `--no-projection` to ignore
-`projection_matrix` and use intrinsics instead.
-Defaults:
-- Vocabulary: `orbslam3_stream/vocabulary/ORBvoc.txt`
-- Calibration: `orbslam3_stream/config/camera_left.yaml`
-- Depth engine: `depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
-First run will clone ORB-SLAM3 into `orbslam3_stream/vendor`.
+`data/` is ignored from git and used for local testing only.
 
-### 5) On WSL (Voxel map GUI)
-```
-bash run_voxel_stream.sh --port 5600
-```
-This builds ORB-SLAM3 (if missing) and launches a Qt window with:
-- RGB panel
-- Depth panel
-- 3D voxel + pose path view
-- 3D ESDF view (local grid projection)
-Defaults:
-- Vocabulary: `orbslam3_stream/vocabulary/ORBvoc.txt`
-- Calibration: `orbslam3_stream/config/camera_left.yaml`
-- Depth engine: `depth_stream_cpp/models/DA3METRIC-LARGE.trt10.engine`
-Voxel defaults:
-- `--voxel-size 0.1` meters
-- `--grid-x 50 --grid-y 50 --grid-z 30` (local grid dimensions)
-- `--stride 4`
-- `--max-depth 6.0`
-Map defaults:
-- Unbounded hash map (accumulates without range limits)
- - Local grid is rolling (centered on the camera)
-Map options:
-- `--unbounded-map` uses the unbounded hash map (default)
-- `--bounded-map` disables the global map (local grid only)
-- `--fixed-grid` keeps the local grid fixed at the first pose
-- `--rolling-grid` recenters the local grid around the camera
-- `--grid-x 50 --grid-y 50 --grid-z 30` set local grid dimensions
-Local map:
-- A bounded grid is integrated every frame (fast local update).
-- When `--unbounded-map` is enabled, the global map is refreshed from the local grid at the UI update rate.
-ESDF view:
-- The ESDF panel is derived from the local grid (height-map + 2D distance field in XZ).
-UI options:
-- `--no-preview` hides the RGB/depth panels
-- `--show-raw` shows raw RGB instead of the rectified frame
-
-## Notes
-- The sender script auto-selects an encoder:
-  - `v4l2h264enc` (preferred) -> `omxh264enc` -> `x264enc` fallback.
-- `recv_view.py` uses an appsink with `max-buffers=1` and `drop=true`
-  to keep the stream real-time by discarding old frames.
-- Use `--log-fps` to print FPS in the terminal.
-- Use `--log-timing` to print per-stage timing (decode/remap/depth/SLAM/voxel/UI).
-- If the UI opens but no frames arrive, add `--log-wait` to print a
-  periodic "waiting for frames..." message.
-- Depth inference uses the local TensorRT engine under `depth_stream_cpp/models`.
-- On Ubuntu 24.04, `libpangolin-dev` may be missing from apt; if the ORB-SLAM3 build fails,
-  install Pangolin from source.
+Current local dataset:
+- `data/tum/rgbd_dataset_freiburg1_xyz`
+- Source page: https://cvg.cit.tum.de/data/datasets/rgbd-dataset/download
+- Download URL used: https://cvg.cit.tum.de/rgbd/dataset/freiburg1/rgbd_dataset_freiburg1_xyz.tgz
+- Calibration reference: https://cvg.cit.tum.de/data/datasets/rgbd-dataset/file_formats
+- Local calibration file:
+  - `data/tum/rgbd_dataset_freiburg1_xyz/camera_freiburg1_rgb.yaml`

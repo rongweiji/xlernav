@@ -2,6 +2,10 @@ depth_stream_cpp/build/
 orbslam3_stream/build/
 orbslam3_stream/vendor/
 orbslam3_stream/vocabulary/
+third_party/cuVSLAM/build/
+third_party/cuVSLAM/build_rerun/
+third_party/cuVSLAM/outputs/
+third_party/cuvslam_sdk/
 .claude/
 cuda-keyring_1.1-1_all.deb
 depth_stream_cpp/models
@@ -10,3 +14,6 @@ common/build/
 stereo_stream_cpp/build/
 sample_20260117_205753
 sample_20260119_130754
+data/
+outputs/
+.tools/ 

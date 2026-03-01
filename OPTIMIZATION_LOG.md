@@ -22,11 +22,11 @@ Entry point: `run_voxel_stream.sh` -> `voxel_stream/main.cpp`
 7) Snapshot for UI
    - `VoxelMap::Snapshot` (downsampled by `--max-render`).
 8) UI
-   - Qt window: RGB panel + depth panel + 3D voxel + pose path view.
+   - Rerun C++ logging: RGB + depth + pose + trajectory + voxel map streams.
 
 Threading model:
 - Pipeline stages run sequentially in a single worker thread (decode -> undistort -> depth -> SLAM -> integrate -> snapshot).
-- UI runs on the main Qt thread; ORB-SLAM3 may spawn internal threads, but tracking is still the main gate.
+- No local GUI thread in the stream app; visualization is handled through Rerun sinks.
 
 ## Performance Snapshot (Baseline)
 Command:

@@ -9,6 +9,25 @@ ORB_DIR="${SCRIPT_DIR}/orbslam3_stream/vendor/ORB_SLAM3"
 VOCAB_FILE="${SCRIPT_DIR}/orbslam3_stream/vocabulary/ORBvoc.txt"
 DEPTH_LIB_DIR="${SCRIPT_DIR}/depth_stream_cpp/vendor/depth_anything_v3/lib"
 
+SLAM_BACKEND="orbslam3"
+FORWARD_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --slam-backend)
+      SLAM_BACKEND="$2"
+      shift 2
+      ;;
+    *)
+      FORWARD_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [[ "${SLAM_BACKEND}" != "orbslam3" ]]; then
+  exec "${SCRIPT_DIR}/run_slam.sh" --backend "${SLAM_BACKEND}" -- "${FORWARD_ARGS[@]}"
+fi
+
 if [[ ! -f "${DEPTH_LIB_DIR}/libtensorrt_depth_anything.so" ]]; then
   echo "Depth engine library not found at ${DEPTH_LIB_DIR}/libtensorrt_depth_anything.so"
   echo "Make sure the Depth Anything vendor files are present under depth_stream_cpp/vendor."
@@ -30,8 +49,10 @@ if [[ -f "${ORB_CMAKE}" ]]; then
 fi
 
 ORB_CACHE="${ORB_DIR}/build/CMakeCache.txt"
-if [[ -f "${ORB_CACHE}" ]] && grep -q "std=c\\+\\+11" "${ORB_CACHE}"; then
-  rm -rf "${ORB_DIR}/build"
+if [[ -f "${ORB_CACHE}" ]]; then
+  if grep -q "std=c\\+\\+11" "${ORB_CACHE}" || grep -q "/non_ros/" "${ORB_CACHE}"; then
+    rm -rf "${ORB_DIR}/build"
+  fi
 fi
 
 if [[ ! -f "${VOCAB_FILE}" ]]; then
@@ -50,6 +71,10 @@ if [[ ! -f "${ORB_DIR}/lib/libORB_SLAM3.so" ]]; then
   (cd "${ORB_DIR}" && ./build.sh)
 fi
 
+if [[ -f "${BUILD_DIR}/CMakeCache.txt" ]] && grep -q "/non_ros/" "${BUILD_DIR}/CMakeCache.txt"; then
+  rm -rf "${BUILD_DIR}"
+fi
+
 if [[ ! -f "${BUILD_DIR}/CMakeCache.txt" ]] || [[ "${STREAM_DIR}/CMakeLists.txt" -nt "${BUILD_DIR}/CMakeCache.txt" ]]; then
   mkdir -p "${BUILD_DIR}"
   cmake -S "${STREAM_DIR}" -B "${BUILD_DIR}" \
@@ -59,4 +84,4 @@ cmake --build "${BUILD_DIR}" -j"$(nproc)"
 
 export LD_LIBRARY_PATH="${ORB_DIR}/lib:${ORB_DIR}/Thirdparty/DBoW2/lib:${ORB_DIR}/Thirdparty/g2o/lib:${DEPTH_LIB_DIR}:/opt/ros/jazzy/lib:${LD_LIBRARY_PATH:-}"
 
-exec "${BIN}" "$@"
+exec "${BIN}" "${FORWARD_ARGS[@]}"

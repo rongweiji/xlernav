@@ -4,17 +4,26 @@ project(voxel_stream)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(XLERNAV_ENABLE_RERUN "Enable Rerun C++ visualization output" ON)
+
+if(XLERNAV_ENABLE_RERUN)
+  include(FetchContent)
+  if(DEFINED ENV{XLERNAV_FETCHCONTENT_DIR} AND NOT "$ENV{XLERNAV_FETCHCONTENT_DIR}" STREQUAL "")
+    set(FETCHCONTENT_BASE_DIR "$ENV{XLERNAV_FETCHCONTENT_DIR}")
+  else()
+    set(FETCHCONTENT_BASE_DIR "/tmp/xlernav_fetchcontent")
+  endif()
+  FetchContent_Declare(
+    rerun_sdk
+    URL https://github.com/rerun-io/rerun/releases/latest/download/rerun_cpp_sdk.zip
+  )
+  FetchContent_MakeAvailable(rerun_sdk)
+endif()
+
 find_package(ament_cmake REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 find_package(Pangolin REQUIRED)
-find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets QUIET)
-if (Qt6_FOUND)
-  set(QT_LIBS Qt6::Widgets Qt6::OpenGL Qt6::OpenGLWidgets)
-else()
-  find_package(Qt5 COMPONENTS Widgets OpenGL REQUIRED)
-  set(QT_LIBS Qt5::Widgets Qt5::OpenGL)
-endif()
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
@@ -29,6 +38,7 @@ set(ORB_SLAM3_LIB "${ORB_SLAM3_DIR}/lib/libORB_SLAM3.so")
 add_executable(voxel_stream
   main.cpp
   voxel_map.cpp
+  ../common/rerun_stream_logger.cpp
 )
 
 target_include_directories(voxel_stream PRIVATE
@@ -44,14 +54,19 @@ target_include_directories(voxel_stream PRIVATE
 )
 
 target_compile_definitions(voxel_stream PRIVATE HAVE_EPOXY HAVE_EIGEN)
+if(XLERNAV_ENABLE_RERUN)
+  target_compile_definitions(voxel_stream PRIVATE XLERNAV_WITH_RERUN)
+endif()
 
 target_link_libraries(voxel_stream
   xlernav_common
   ${OpenCV_LIBRARIES}
   ${ORB_SLAM3_LIB}
   ${Pangolin_LIBRARIES}
-  ${QT_LIBS}
 )
+if(XLERNAV_ENABLE_RERUN)
+  target_link_libraries(voxel_stream rerun_sdk)
+endif()
 
 ament_target_dependencies(voxel_stream
   sensor_msgs
