@@ -11,7 +11,7 @@ DEPTH_LIB_DIR="${SCRIPT_DIR}/depth_stream_cpp/vendor/depth_anything_v3/lib"
 
 if [[ ! -f "${DEPTH_LIB_DIR}/libtensorrt_depth_anything.so" ]]; then
   echo "Depth engine library not found at ${DEPTH_LIB_DIR}/libtensorrt_depth_anything.so"
-  echo "Make sure the Depth Anything vendor files are present under non_ros/depth_stream_cpp/vendor."
+  echo "Make sure the Depth Anything vendor files are present under depth_stream_cpp/vendor."
   exit 1
 fi
 

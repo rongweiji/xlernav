@@ -86,7 +86,7 @@ def main() -> int:
     if sample_dir is None:
         sample_dir = find_latest_sample(root)
         if sample_dir is None:
-            print("No sample_* folder found under non_ros.", file=sys.stderr)
+            print("No sample_* folder found in repository root.", file=sys.stderr)
             return 1
 
     if not sample_dir.exists():
